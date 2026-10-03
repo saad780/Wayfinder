@@ -163,6 +163,7 @@ local function InitializeDatabase()
 	db.explored = db.explored or {}
 	db.imported = db.imported or {}
 	db.waypoints = db.waypoints or {}
+	db.questAvailability = db.questAvailability or {}
 	-- 1.0 had an on/off "show unexplored terrain" setting.
 	if db.settings.revealAll ~= nil then
 		if db.settings.revealAll == true and db.settings.unexploredTerrain == nil then
@@ -407,6 +408,7 @@ StaticPopupDialogs.WAYFINDER_RESET = {
 		if what == "pois" or what == "all" then
 			wipe(ns.db.pois)
 			wipe(ns.db.hidden)
+			ns.QuestAvailability:Reset()
 			ns.Database:Rebuild()
 		end
 		if what == "exploration" or what == "all" then

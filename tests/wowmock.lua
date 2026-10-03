@@ -73,7 +73,12 @@ function CanMerchantRepair() return mock.canRepair or false end
 function IsTradeskillTrainer() return mock.tradeskillTrainer or false end
 function GetMerchantNumItems() return #(mock.merchantItems or {}) end
 function GetMerchantItemLink(i) return mock.merchantItems[i] and mock.merchantItems[i].link end
-function GetNumAvailableQuests() return 0 end
+function GetNumAvailableQuests() return #(mock.greetingOffers or {}) end
+function GetAvailableQuestInfo(i)
+	local info = mock.greetingOffers[i]
+	return false, info.frequency, info.repeatable, false, info.questID
+end
+function GetQuestID() return mock.questID or 0 end
 function GetNumActiveQuests() return 0 end
 mock.units = {}
 LEVEL = "Level"
@@ -407,14 +412,22 @@ function C_Item.GetItemSpell(link)
 end
 C_GossipInfo = { options = {} }
 function C_GossipInfo.GetOptions() return C_GossipInfo.options end
-function C_GossipInfo.GetNumAvailableQuests() return mock.gossipQuests or 0 end
-function C_GossipInfo.GetNumActiveQuests() return 0 end
+function C_GossipInfo.GetAvailableQuests() return mock.gossipOffers or {} end
+function C_GossipInfo.GetNumAvailableQuests() return #(mock.gossipOffers or {}) end
+function C_GossipInfo.GetNumActiveQuests() return mock.activeGossipQuests or 0 end
 function C_GossipInfo.SelectOption() end
 function C_GossipInfo.GetPoiForUiMapID() return mock.gossipPoi and 1 or nil end
 function C_GossipInfo.GetPoiInfo() return mock.gossipPoi end
 C_QuestLine = {}
-function C_QuestLine.GetAvailableQuestLines() return { { questName = "A quest", x = 0.45, y = 0.62, isHidden = false } } end
-function C_QuestLine.RequestQuestLinesForMap() end
+function C_QuestLine.GetAvailableQuestLines()
+	return mock.questLines or { { questID = 123450, questName = "A quest", x = 0.45, y = 0.62, isHidden = false, inProgress = false } }
+end
+function C_QuestLine.RequestQuestLinesForMap(id) mock.requestedQuestMap = id end
+C_QuestLog = {}
+mock.questLog, mock.completedQuests, mock.repeatableQuests = {}, {}, {}
+function C_QuestLog.IsOnQuest(id) return mock.questLog[id] or false end
+function C_QuestLog.IsQuestFlaggedCompleted(id) return mock.completedQuests[id] or false end
+function C_QuestLog.IsRepeatableQuest(id) return mock.repeatableQuests[id] or false end
 C_TaxiMap = {}
 function C_TaxiMap.GetTaxiNodesForMap(mapID)
 	if mapID == 1453 then

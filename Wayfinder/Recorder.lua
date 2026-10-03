@@ -139,21 +139,6 @@ Map("Binder", "inn")
 Map("Auctioneer", "auction")
 Map("StableMaster", "stable")
 Map("BattleMaster", "battlemaster")
-Map("QuestGiver", "quest")
-
-local function HasQuests()
-	local gossip = C_GossipInfo
-	if gossip then
-		local available = gossip.GetNumAvailableQuests and gossip.GetNumAvailableQuests() or 0
-		local active = gossip.GetNumActiveQuests and gossip.GetNumActiveQuests() or 0
-		if available > 0 or active > 0 then
-			return true
-		end
-	end
-	local available = GetNumAvailableQuests and GetNumAvailableQuests() or 0
-	local active = GetNumActiveQuests and GetNumActiveQuests() or 0
-	return available > 0 or active > 0
-end
 
 function Recorder:RecordMailbox()
 	local pos = PlayerPosition()
@@ -205,9 +190,10 @@ function Recorder:OnInteraction(interactionType)
 			classToken = titleClass or ns.playerClass
 		end
 	elseif interactionType == T.Gossip then
-		if HasQuests() then
-			cats.quest = true
-		end
+		-- Gossip's complete offer list is read on GOSSIP_SHOW, not this early
+		-- interaction event. Counts here may be stale or not loaded yet.
+	elseif interactionType == T.QuestGiver then
+		-- The quest frame events will distinguish pickups from progress/turn-ins.
 	else
 		return
 	end
@@ -217,11 +203,90 @@ function Recorder:OnInteraction(interactionType)
 	end
 end
 
-function Recorder:OnQuestFrame()
-	local unit = ReadUnit("npc")
-	if unit then
-		Record(unit, { quest = true }, nil, TALK_ACCURACY, "talk")
+local function Offer(id, repeatable, frequency)
+	if not Readable(id) or type(id) ~= "number" or id <= 0 or id ~= math.floor(id) then return nil end
+	if repeatable ~= nil and not Readable(repeatable) then return nil end
+	if frequency ~= nil and not Readable(frequency) then return nil end
+	return { questID = id, repeatable = repeatable == true or (type(frequency) == "number" and frequency > 0) }
+end
+
+local function ReadAvailableOffers(kind)
+	local offers = {}
+	if kind == "gossip" then
+		if not (C_GossipInfo and C_GossipInfo.GetAvailableQuests) then return nil end
+		local ok, list = pcall(C_GossipInfo.GetAvailableQuests)
+		if not ok or not Readable(list) or type(list) ~= "table" then return nil end
+		if C_GossipInfo.GetNumAvailableQuests then
+			local countOK, count = pcall(C_GossipInfo.GetNumAvailableQuests)
+			if not countOK or not Readable(count) or count ~= #list then return nil end
+		end
+		for _, info in ipairs(list) do
+			if not Readable(info) or type(info) ~= "table" then return nil end
+			local offer = Offer(info.questID, info.repeatable, info.frequency)
+			if not offer then return nil end
+			offers[#offers + 1] = offer
+		end
+	else
+		if not GetNumAvailableQuests or not GetAvailableQuestInfo then return nil end
+		local ok, count = pcall(GetNumAvailableQuests)
+		if not ok or not Readable(count) or type(count) ~= "number" or count < 0 or count ~= math.floor(count) then return nil end
+		for i = 1, count do
+			-- Forever's greeting API returns the quest ID fifth.
+			local infoOK, _, frequency, repeatable, _, id = pcall(GetAvailableQuestInfo, i)
+			if not infoOK then return nil end
+			local offer = Offer(id, repeatable, frequency)
+			if not offer then return nil end
+			offers[#offers + 1] = offer
+		end
 	end
+	return offers
+end
+
+function Recorder:OnAvailableQuests(kind)
+	local unit, offers = ReadUnit("npc"), ReadAvailableOffers(kind)
+	if not unit or not offers then return end
+	local rec
+	if #offers > 0 then
+		rec = Record(unit, { quest = true }, nil, TALK_ACCURACY, "talk")
+	else
+		-- Update an existing quest giver, without creating a POI for every NPC
+		-- who happens to have an empty gossip menu.
+		local pos = PlayerPosition()
+		if pos then
+			rec = ns.Database:FindNearest(pos.cont, pos.wx, pos.wy, 64, function(r)
+				return r.kind == "npc" and r.cats.quest and
+					((unit.npcID and r.id == unit.npcID) or (not unit.npcID and r.n == unit.name))
+			end)
+		end
+	end
+	if rec then ns.QuestAvailability:Observe(rec, offers, true) end
+end
+
+function Recorder:OnQuestFrame(event, questStartItemID)
+	if event == "QUEST_GREETING" then
+		self:OnAvailableQuests("greeting")
+		return
+	end
+	if not GetQuestID then return end
+	local ok, id = pcall(GetQuestID)
+	if not ok or not Offer(id) then return end
+	if event == "QUEST_PROGRESS" or event == "QUEST_COMPLETE" then
+		-- This quest is already accepted; it says nothing about other offers.
+		ns.QuestAvailability:ForgetQuest(id)
+		return
+	end
+	-- Item-started offers have no NPC to associate with the pickup.
+	if questStartItemID ~= nil and (not Readable(questStartItemID) or questStartItemID ~= 0) then return end
+	local unit = ReadUnit("npc")
+	if not unit then return end
+	local repeatable = false
+	if C_QuestLog and C_QuestLog.IsRepeatableQuest then
+		local repeatOK, value = pcall(C_QuestLog.IsRepeatableQuest, id)
+		if not repeatOK or not Readable(value) then return end
+		repeatable = value == true
+	end
+	local rec = Record(unit, { quest = true }, nil, TALK_ACCURACY, "talk")
+	if rec then ns.QuestAvailability:Observe(rec, { Offer(id, repeatable) }, false) end
 end
 
 ---------------------------------------------------------------------------
@@ -475,10 +540,12 @@ function Recorder:OnLogin()
 	-- recording twice just merges into the same NPC.
 	ns:RegisterEvent("GOSSIP_SHOW", function()
 		self:OnInteraction(T.Gossip)
+		self:OnAvailableQuests("gossip")
 	end)
+	ns:RegisterEvent("GOSSIP_OPTIONS_REFRESHED", function() self:OnAvailableQuests("gossip") end)
 	for _, event in ipairs({ "QUEST_DETAIL", "QUEST_GREETING", "QUEST_PROGRESS", "QUEST_COMPLETE" }) do
-		ns:RegisterEvent(event, function()
-			self:OnQuestFrame()
+		ns:RegisterEvent(event, function(firedEvent, questStartItemID)
+			self:OnQuestFrame(firedEvent, questStartItemID)
 		end)
 	end
 	ns:RegisterEvent("UPDATE_MOUSEOVER_UNIT", function()

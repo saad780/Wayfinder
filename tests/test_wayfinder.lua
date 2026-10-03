@@ -276,13 +276,253 @@ end)
 
 test("quest givers are recorded from gossip with quests", function()
 	setUnit("npc", { name = "Marshal", npcID = 197, guid = "Creature-0-1-0-1-197-0001" })
-	mock.gossipQuests = 1
+	mock.gossipOffers = { { questID = 100197 } }
 	mock.Fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", Enum.PlayerInteractionType.Gossip)
+	ok(not findRecord(function(r) return r.id == 197 end), "early interaction does not guess availability")
+	mock.Fire("GOSSIP_SHOW")
 	ok(findRecord(function(r) return r.id == 197 end).cats.quest, "quest giver")
-	mock.gossipQuests = 0
+	mock.gossipOffers = {}
 	setUnit("npc", { name = "Chatty", npcID = 777, guid = "Creature-0-1-0-1-777-0001" })
 	mock.Fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", Enum.PlayerInteractionType.Gossip)
+	mock.Fire("GOSSIP_SHOW")
 	ok(not findRecord(function(r) return r.id == 777 end), "plain gossip NPC not recorded")
+end)
+
+---------------------------------------------------------------------------
+-- Per-character quest pickups, learned from authoritative game interactions
+---------------------------------------------------------------------------
+local QA = ns.QuestAvailability
+local function QuestNPC(id, title)
+	setPlayer(1429, 0.5, 0.7)
+	setUnit("npc", { name = "Quest NPC " .. id, title = title, npcID = id,
+		guid = "Creature-0-1-0-1-" .. id .. "-0001" })
+	mock.gossipOffers, mock.greetingOffers, mock.activeGossipQuests = {}, {}, 0
+	return function() return findRecord(function(r) return r.id == id end) end
+end
+
+test("accepting offers keeps the marker until the last quest, then removes it immediately", function()
+	local record = QuestNPC(91001)
+	mock.gossipOffers = { { questID = 81001 }, { questID = 81002 } }
+	mock.Fire("GOSSIP_SHOW")
+	local rec = record()
+	eq(ns.Categories:GetVisibleCategory(rec), "quest", "two available pickups")
+	mock.Fire("QUEST_ACCEPTED", 81001) -- log data may arrive a little later
+	ok(QA:HasAvailableQuest(rec, 81002), "second pickup retained")
+	ok(not QA:HasAvailableQuest(rec, 81001), "first removed")
+	eq(ns.Categories:GetVisibleCategory(rec), "quest", "marker retained")
+	mock.questLog[81001] = true
+	mock.Fire("QUEST_ACCEPTED", 81002)
+	eq(ns.Categories:GetVisibleCategory(rec), nil, "last pickup hides marker before log catches up")
+	mock.questLog[81002] = true
+	mock.Fire("QUEST_LOG_UPDATE")
+	eq(ns.db.pois[rec.k], rec, "NPC identity retained")
+end)
+
+test("empty gossip removes pickup markers even with active quests", function()
+	local record = QuestNPC(91002)
+	mock.gossipOffers = { { questID = 81003 } }
+	mock.Fire("GOSSIP_SHOW")
+	local rec = record()
+	mock.gossipOffers, mock.activeGossipQuests = {}, 2
+	mock.Fire("GOSSIP_SHOW")
+	eq(ns.Categories:GetVisibleCategory(rec), nil, "active quests aren't pickups")
+	ok(not QA:HasAvailableQuest(rec), "verified empty")
+	mock.activeGossipQuests = 0
+end)
+
+test("legacy greetings use available quest IDs and preserve other services", function()
+	local record = QuestNPC(91003, "Vendor")
+	mock.greetingOffers = { { questID = 81004 }, { questID = 81005 } }
+	mock.Fire("QUEST_GREETING")
+	local rec = record()
+	eq(ns.Categories:GetVisibleCategory(rec), "quest", "quest pickup ahead of vendor icon")
+	mock.Fire("QUEST_ACCEPTED", 81004)
+	mock.greetingOffers = { { questID = 81005 } }
+	mock.Fire("QUEST_GREETING")
+	ok(QA:HasAvailableQuest(rec, 81005), "fifth legacy return is quest ID")
+	mock.greetingOffers = {}
+	mock.Fire("QUEST_GREETING")
+	eq(ns.Categories:GetVisibleCategory(rec), "vendor", "vendor remains after last pickup removed")
+	ns.Tooltip:Show(UIParent, rec, "vendor")
+	local text = table.concat(GameTooltip.lines, " ")
+	ok(not text:find("Quest Givers", 1, true), "tooltip no longer advertises available quests")
+	ok(text:find("Other Vendors", 1, true), "vendor tooltip retained")
+end)
+
+test("quest detail confirms one offer; progress and turn-ins never invent pickups", function()
+	local record = QuestNPC(91004)
+	mock.gossipOffers = { { questID = 81006 }, { questID = 81007 } }
+	mock.Fire("GOSSIP_SHOW")
+	mock.questID = 81006
+	mock.Fire("QUEST_DETAIL")
+	ok(QA:HasAvailableQuest(record(), 81007), "detail does not replace whole offer list")
+	mock.questLog[81006] = true
+	mock.Fire("QUEST_PROGRESS")
+	ok(not QA:HasAvailableQuest(record(), 81006), "progress isn't a pickup")
+	ok(QA:HasAvailableQuest(record(), 81007), "other offer survives progress")
+	mock.questID = 81007
+	mock.Fire("QUEST_COMPLETE")
+	eq(ns.Categories:GetVisibleCategory(record()), nil, "turn-in doesn't create pickup")
+	local turnInRecord = QuestNPC(91005)
+	mock.questID = 81008
+	mock.Fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", Enum.PlayerInteractionType.QuestGiver)
+	mock.Fire("QUEST_PROGRESS")
+	mock.Fire("QUEST_COMPLETE")
+	eq(turnInRecord(), nil, "turn-in-only NPC not recorded as a pickup")
+	mock.questID = nil
+end)
+
+test("direct offers and newly unlocked follow-ups become available", function()
+	local record = QuestNPC(91006)
+	mock.questID = 81009
+	mock.Fire("QUEST_DETAIL")
+	ok(QA:HasAvailableQuest(record(), 81009), "direct offer verified")
+	mock.questLog[81009] = true
+	mock.Fire("QUEST_ACCEPTED", 81009)
+	mock.questLog[81009], mock.completedQuests[81009] = nil, true
+	mock.Fire("QUEST_TURNED_IN", 81009)
+	mock.questID = 81010
+	mock.Fire("QUEST_DETAIL")
+	ok(QA:HasAvailableQuest(record(), 81010), "follow-up verified")
+	mock.questID = nil
+end)
+
+test("abandoned and repeatable quests need fresh confirmation before returning", function()
+	local record = QuestNPC(91007)
+	mock.gossipOffers = { { questID = 81011 } }
+	mock.Fire("GOSSIP_SHOW")
+	mock.questLog[81011] = true
+	mock.Fire("QUEST_ACCEPTED", 81011)
+	mock.questLog[81011] = nil
+	mock.Fire("QUEST_REMOVED", 81011)
+	mock.Fire("QUEST_LOG_UPDATE")
+	ok(not QA:HasAvailableQuest(record()), "abandoning alone doesn't guess an offer")
+	mock.Fire("GOSSIP_SHOW")
+	ok(QA:HasAvailableQuest(record()), "fresh offer restores abandoned quest")
+	mock.completedQuests[81012] = true
+	mock.gossipOffers = { { questID = 81012, repeatable = true } }
+	mock.Fire("GOSSIP_SHOW")
+	ok(QA:HasAvailableQuest(record(), 81012), "previously completed repeatable can be offered")
+	mock.Fire("QUEST_TURNED_IN", 81012)
+	ok(not QA:HasAvailableQuest(record()), "repeatable turn-in clears until offered again")
+	mock.Fire("GOSSIP_SHOW")
+	ok(QA:HasAvailableQuest(record()), "repeatable restored by a fresh offer")
+	mock.gossipOffers = { { questID = 81013, frequency = 1 } }
+	mock.completedQuests[81013] = true
+	mock.Fire("GOSSIP_SHOW")
+	ok(QA:HasAvailableQuest(record(), 81013), "daily frequency allows confirmed repeat offer")
+end)
+
+test("unreadable, missing, failed and partially loaded gossip never mean zero offers", function()
+	local record = QuestNPC(91008)
+	mock.gossipOffers = { { questID = 81014 } }
+	mock.Fire("GOSSIP_SHOW")
+	local read, countAvailable = C_GossipInfo.GetAvailableQuests, C_GossipInfo.GetNumAvailableQuests
+	for _, broken in ipairs({
+		function() error("not ready") end,
+		function() return nil end,
+		function() return mock.SECRET end,
+		function() return { { questID = mock.SECRET } } end,
+		function() return { { questID = 81014, repeatable = mock.SECRET } } end,
+	}) do
+		C_GossipInfo.GetAvailableQuests = broken
+		mock.Fire("GOSSIP_SHOW")
+		C_GossipInfo.GetAvailableQuests = read
+		ok(QA:HasAvailableQuest(record()), "unreadable list preserves known offers")
+	end
+	C_GossipInfo.GetAvailableQuests = nil
+	mock.Fire("GOSSIP_SHOW")
+	C_GossipInfo.GetAvailableQuests = read
+	ok(QA:HasAvailableQuest(record()), "absent API preserves known offers")
+	C_GossipInfo.GetNumAvailableQuests = function() return 2 end
+	mock.Fire("GOSSIP_SHOW")
+	C_GossipInfo.GetNumAvailableQuests = countAvailable
+	ok(QA:HasAvailableQuest(record()), "partial list preserves known offers")
+	mock.greetingOffers = { { questID = mock.SECRET } }
+	mock.Fire("QUEST_GREETING")
+	ok(QA:HasAvailableQuest(record()), "unreadable greeting preserves known offers")
+end)
+
+test("unreadable quest log flags never discard verified NPC offers", function()
+	local record = QuestNPC(91014)
+	mock.gossipOffers = { { questID = 81024 } }
+	mock.Fire("GOSSIP_SHOW")
+	local rec = record()
+	mock.questLog[81024] = mock.SECRET
+	mock.Fire("GOSSIP_SHOW")
+	mock.Fire("QUEST_LOG_UPDATE")
+	ok(not QA:HasAvailableQuest(rec), "unsafe log state is not drawn")
+	mock.questLog[81024] = nil
+	ok(QA:HasAvailableQuest(rec), "offer preserved when readable state returns")
+	local logAPI = C_QuestLog
+	C_QuestLog = nil
+	mock.Fire("GOSSIP_SHOW")
+	C_QuestLog = logAPI
+	ok(QA:HasAvailableQuest(rec), "missing log API doesn't erase verified data")
+	local completeAPI = C_QuestLog.IsQuestFlaggedCompleted
+	C_QuestLog.IsQuestFlaggedCompleted = function() error("not loaded") end
+	mock.Fire("GOSSIP_SHOW")
+	C_QuestLog.IsQuestFlaggedCompleted = completeAPI
+	ok(QA:HasAvailableQuest(rec), "failed completion read doesn't erase verified data")
+end)
+
+test("item-started quest details do not attach a quest to an unrelated NPC", function()
+	local record = QuestNPC(91015)
+	mock.questID = 81025
+	mock.Fire("QUEST_DETAIL", 12345)
+	eq(record(), nil, "item-started quest isn't assigned to current NPC")
+	mock.questID = nil
+end)
+
+test("availability is isolated by character and survives saved-variable reload", function()
+	local record = QuestNPC(91009)
+	mock.gossipOffers = { { questID = 81015 } }
+	mock.Fire("GOSSIP_SHOW")
+	local rec, firstKey, firstLog = record(), ns:GetCharacterKey(), mock.questLog
+	mock.questLog[81015] = true
+	mock.Fire("QUEST_ACCEPTED", 81015)
+	ns.charKey, mock.questLog = "Alt-TestRealm", {}
+	ok(not QA:HasAvailableQuest(rec), "alt doesn't inherit first character's offers")
+	mock.Fire("GOSSIP_SHOW")
+	ok(QA:HasAvailableQuest(rec), "alt learns its own offer")
+	ns.charKey, mock.questLog = firstKey, firstLog
+	ok(not QA:HasAvailableQuest(rec), "first character still has no pickup")
+	QA:OnInitialize() -- same persisted database, fresh module transient state
+	QA:Reconcile()
+	ok(not QA:HasAvailableQuest(rec), "acceptance remains cleared after reload")
+	ns.charKey, mock.questLog = "Alt-TestRealm", {}
+	ok(QA:HasAvailableQuest(rec), "alt's positive evidence survives reload")
+	mock.completedQuests[81015] = true
+	mock.Fire("QUEST_LOG_UPDATE")
+	ok(not QA:HasAvailableQuest(rec), "completion removes outdated saved offer")
+	mock.completedQuests[81015] = nil
+	ns.charKey, mock.questLog = firstKey, firstLog
+end)
+
+test("legacy markers stay hidden, and removing a record clears every character's evidence", function()
+	local record = QuestNPC(91010, "Vendor")
+	mock.Fire("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", Enum.PlayerInteractionType.Gossip)
+	local rec = record()
+	rec.cats.quest = true -- legacy permanent role, with no quest IDs
+	eq(ns.Categories:GetVisibleCategory(rec), "vendor", "legacy quest role doesn't obscure vendor")
+	mock.gossipOffers = { { questID = 81016 } }
+	mock.Fire("GOSSIP_SHOW")
+	eq(ns.Categories:GetVisibleCategory(rec), "quest", "fresh verification restores pickup")
+	local key = ns:GetCharacterKey()
+	ns.db.questAvailability["Another-TestRealm"] = { [rec.k] = { [81016] = { repeatable = false } } }
+	ns.Database:Remove(rec)
+	eq(ns.db.questAvailability[key][rec.k], nil, "current character cleaned")
+	eq(ns.db.questAvailability["Another-TestRealm"][rec.k], nil, "other character cleaned")
+end)
+
+test("recorded quest availability obeys the category setting", function()
+	local record = QuestNPC(91011, "Vendor")
+	mock.gossipOffers = { { questID = 81017 } }
+	mock.Fire("GOSSIP_SHOW")
+	ns:SetCategoryEnabled("quest", false)
+	eq(ns.Categories:GetVisibleCategory(record()), "vendor", "disabled quest category leaves service")
+	ns:SetCategoryEnabled("quest", true)
+	eq(ns.Categories:GetVisibleCategory(record()), "quest", "enabled category shows verified quest")
 end)
 
 test("guard directions record the marked place, then merge with the NPC", function()
@@ -1265,6 +1505,132 @@ test("add slash command imports pasted waypoint text from outside the game", fun
 	eq(Nav:GetWaypoint(), before, "invalid paste does not replace")
 	ok(mock.printed:find("Usage:", 1, true), "bad paste explained")
 	Nav:ClearWaypoint()
+end)
+
+test("quest pickup disappears from the world map on acceptance or verified zero offers", function()
+	local record = QuestNPC(91012)
+	WorldMapFrame.mapID = 1429
+	mock.gossipOffers = { { questID = 81018 } }
+	mock.Fire("GOSSIP_SHOW")
+	mock.Advance(0.3)
+	local rec = record()
+	local function Visible()
+		for _, pin in ipairs(WorldMapFrame.pins) do if pin.rec == rec then return true end end
+		return false
+	end
+	ok(Visible(), "verified quest on world map")
+	mock.Fire("QUEST_ACCEPTED", 81018)
+	mock.questLog[81018] = true
+	mock.Advance(0.3)
+	ok(not Visible(), "acceptance automatically refreshes world map")
+	mock.gossipOffers = { { questID = 81019 } }
+	mock.Fire("GOSSIP_SHOW")
+	mock.Advance(0.3)
+	ok(Visible(), "new offer restores world map marker")
+	mock.gossipOffers = {}
+	mock.Fire("GOSSIP_SHOW")
+	mock.Advance(0.3)
+	ok(not Visible(), "zero offers automatically refreshes world map")
+end)
+
+test("detail view filters stale live offers, deduplicates pickups and respects settings", function()
+	local record = QuestNPC(91013)
+	WorldMapFrame.mapID = 1429
+	mock.questLines = { { questID = 81020, questName = "Available", x = 0.5, y = 0.7, isHidden = false, inProgress = false } }
+	mock.gossipOffers = { { questID = 81020 } }
+	mock.Fire("GOSSIP_SHOW")
+	local rec = record()
+	ok(ns.DetailView:EnterFromMap(), "detail open")
+	WayfinderLocateButton.scripts.OnClick(WayfinderLocateButton)
+	mock.Advance(0.3)
+	local function Pins(id)
+		local recorded, live = 0, 0
+		for _, frame in ipairs(mock.frames) do
+			if frame:IsShown() and frame.scripts.OnMouseDown then
+				if frame.rec == rec then recorded = recorded + 1 end
+				if frame.quest and frame.quest.questID == id then live = live + 1 end
+			end
+		end
+		return recorded, live
+	end
+	local recorded, live = Pins(81020)
+	eq(recorded, 1, "recorded pickup drawn")
+	eq(live, 0, "same live quest not duplicated")
+	mock.Fire("QUEST_ACCEPTED", 81020)
+	mock.Advance(0.3)
+	recorded, live = Pins(81020)
+	eq(recorded, 0, "recorded pin gone before quest log update")
+	eq(live, 0, "cached live offer also gone")
+	mock.questLog[81020] = true
+	mock.Fire("QUESTLINE_UPDATE")
+	mock.Advance(0.3)
+	recorded, live = Pins(81020)
+	eq(live, 0, "accepted quest filtered even if returned by fresh client list")
+	-- An empty greeting also outranks the live list cached before that greeting.
+	mock.questLog[81020] = nil
+	mock.Fire("GOSSIP_SHOW")
+	mock.gossipOffers = {}
+	mock.Fire("GOSSIP_SHOW")
+	mock.Advance(0.3)
+	recorded, live = Pins(81020)
+	eq(recorded, 0, "zero offers removes recorded pin")
+	eq(live, 0, "zero offers removes stale matching live pin")
+	-- A nearby unrelated quest must not disappear because this NPC has no offers.
+	mock.questLines = { { questID = 81021, questName = "Nearby offer", x = 0.5, y = 0.7, isHidden = false, inProgress = false } }
+	ns:Fire("QUEST_AVAILABILITY_CHANGED")
+	mock.Advance(0.3)
+	recorded, live = Pins(81021)
+	eq(live, 1, "unrelated nearby offer survives")
+	ns:SetSetting("showLiveQuests", false)
+	mock.Advance(0.3)
+	recorded, live = Pins(81021)
+	eq(live, 0, "live-marker setting respected")
+	ns:SetSetting("showLiveQuests", true)
+	ns:SetCategoryEnabled("quest", false)
+	mock.Advance(0.3)
+	recorded, live = Pins(81021)
+	eq(live, 0, "quest-category setting respected")
+	ns:SetCategoryEnabled("quest", true)
+	mock.Fire("QUESTLINE_UPDATE")
+	mock.Advance(0.3)
+	recorded, live = Pins(81021)
+	eq(live, 1, "new live offer becomes visible without an NPC database")
+	ns.DetailView:Exit()
+	mock.questLines = nil
+end)
+
+test("live map markers exclude completed, active, hidden and unreadable quests", function()
+	local function Line(id)
+		return { questID = id, isHidden = false, inProgress = false, isDaily = false }
+	end
+	ok(QA:IsLiveQuestAvailable(Line(81022)), "unaccepted live pickup")
+	mock.questLog[81022] = true
+	ok(not QA:IsLiveQuestAvailable(Line(81022)), "active quest hidden")
+	mock.questLog[81022] = nil
+	mock.completedQuests[81022] = true
+	ok(not QA:IsLiveQuestAvailable(Line(81022)), "completed ordinary quest hidden")
+	local daily = Line(81022)
+	daily.isDaily = true
+	ok(QA:IsLiveQuestAvailable(daily), "fresh daily offer can return after completion")
+	local hidden = Line(81023)
+	hidden.isHidden = true
+	ok(not QA:IsLiveQuestAvailable(hidden), "hidden live line suppressed")
+	hidden.isHidden, hidden.inProgress = false, true
+	ok(not QA:IsLiveQuestAvailable(hidden), "in-progress line suppressed")
+	mock.questLog[81023] = mock.SECRET
+	ok(not QA:IsLiveQuestAvailable(Line(81023)), "unreadable quest state safely suppressed")
+	mock.questLog[81023] = nil
+	local secretID = Line(mock.SECRET)
+	ok(not QA:IsLiveQuestAvailable(secretID), "secret ID not read")
+	mock.completedQuests[81022] = nil
+end)
+
+test("recorded-location reset clears quest availability for all characters", function()
+	mock.popup = nil
+	SlashCmdList.WAYFINDER("reset pois")
+	StaticPopupDialogs.WAYFINDER_RESET.OnAccept(nil, "pois")
+	eq(count(ns.db.questAvailability), 0, "no orphaned saved availability after reset")
+	eq(count(ns.db.pois), 0, "locations reset")
 end)
 
 test("no detail view on city maps", function()

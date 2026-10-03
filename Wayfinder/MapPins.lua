@@ -32,7 +32,7 @@ function Tooltip:Show(owner, rec, catID)
 	end
 	local services = {}
 	for _, c in ipairs(ns.CategoryList) do
-		if rec.cats[c.id] then
+		if rec.cats[c.id] and (c.id ~= "quest" or ns.QuestAvailability:HasAvailableQuest(rec)) then
 			services[#services + 1] = c.label
 		end
 	end
@@ -240,4 +240,5 @@ function MapPins:OnLogin()
 	ns:On("DATA_CHANGED", Refresh)
 	ns:On("EXPLORED", Refresh)
 	ns:On("WAYPOINT_CHANGED", Refresh)
+	ns:On("QUEST_AVAILABILITY_CHANGED", Refresh)
 end

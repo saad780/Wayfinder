@@ -5,6 +5,7 @@ A world map addon for **WoW: Forever** (interface 16001, client 1.60.1).
 - **The map keeps zooming.** Zoom the world map in as far as it goes, then scroll in again. The view continues into the minimap's own terrain textures: bright where you have explored, darkened where you haven't.
 - **It fills in as you go.** Everything your minimap shows while you walk, ride or fly is marked as explored. The areas your character discovered before you installed the addon are imported from the world map.
 - **It remembers town services.** Vendors, repair, mailboxes, quest givers, flight masters, boats, zeppelins, the tram, auctioneers, bankers, innkeepers, class and profession trainers, weapon masters, stable masters, battlemasters and spirit healers all get icons. They appear on the world map and in the detail view.
+- **Quest markers mean available pickups.** Each character sees only verified unaccepted quests. Accepting the last known offer, or confirming that an NPC has no offers left, removes their quest marker; their other services remain. Old quest markers stay hidden until verified again. Abandoned and repeatable quests return when the game confirms they are offered again.
 - **Every icon type can be turned on or off.** Use the map button, the options panel, or `/wf show|hide <category>`.
 - **It gets you there.** A button returns the map to where you are. Middle-click anywhere (or on any icon) to drop a waypoint, and a floating arrow points the way.
 

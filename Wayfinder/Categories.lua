@@ -151,7 +151,8 @@ function Categories:GetVisibleCategory(rec)
 	local best, bestOrder
 	for catID in pairs(rec.cats) do
 		local cat = ns.CategoryByID[catID]
-		if cat and settings.cats[catID] ~= false and (not bestOrder or cat.order < bestOrder) then
+		local available = catID ~= "quest" or ns.QuestAvailability:HasAvailableQuest(rec)
+		if cat and available and settings.cats[catID] ~= false and (not bestOrder or cat.order < bestOrder) then
 			local otherClass = catID == "trainer_class" and rec.cls and rec.cls ~= ns.playerClass
 			if not otherClass or settings.showAllClassTrainers then
 				best, bestOrder = catID, cat.order

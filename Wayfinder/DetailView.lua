@@ -574,11 +574,14 @@ local function AddQuestPins(l, r, t, b, size)
 		return
 	end
 	for _, info in ipairs(lines) do
-		if not info.isHidden and info.x and info.y then
+		if ns.QuestAvailability:IsLiveQuestAvailable(info)
+			and ns.Readable(info.x) and ns.Readable(info.y)
+			and type(info.x) == "number" and type(info.y) == "number" then
 			local _, wx, wy = ns.MapToWorld(underlayMapID, info.x, info.y)
 			if wx then
 				local px, py = ns.WorldToPlane(wx, wy)
-				if px >= l and px <= r and py >= t and py <= b then
+				local hidden = ns.QuestAvailability:ShouldHideLiveQuestAt(cont, wx, wy, info.questID)
+				if not hidden and px >= l and px <= r and py >= t and py <= b then
 					local pin = AcquirePin()
 					pin.quest = info
 					pin.px, pin.py = px, py
@@ -1074,6 +1077,7 @@ function DetailView:OnLogin()
 	ns:On("POI_UPDATED", MarkPins)
 	ns:On("POI_REMOVED", MarkPins)
 	ns:On("WAYPOINT_CHANGED", MarkPins)
+	ns:On("QUEST_AVAILABILITY_CHANGED", MarkPins)
 	ns:On("DATA_CHANGED", function()
 		if active then
 			UpdateTiles(true)
