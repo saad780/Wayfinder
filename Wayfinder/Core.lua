@@ -346,6 +346,10 @@ local function HandleSlash(input)
 		end
 	elseif command == "share" then
 		ns.Navigation:CopyWaypoint()
+	elseif command == "add" then
+		if not ns.Navigation:ImportWaypointShare(rest) then
+			ns.Print("Usage: /wf add [Wayfinder:map:x:y:label]  (paste the full shared waypoint)")
+		end
 	elseif command == "clear" then
 		ns.Navigation:ClearWaypoint()
 	elseif command == "arrow" then
@@ -369,6 +373,7 @@ local function HandleSlash(input)
 		print("   /wf stats  - what has been recorded")
 		print("   /wf way <x> <y> [label]  - waypoint in the zone you are in")
 		print("   /wf share  - copy the waypoint link to chat")
+		print("   /wf add <shared waypoint>  - add a pasted waypoint")
 		print("   /wf clear  - remove the waypoint")
 		print("   /wf arrow  - show or hide the waypoint arrow")
 		print("   /wf import  - re-read explored areas from the world map")

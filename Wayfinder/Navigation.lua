@@ -95,7 +95,7 @@ function Navigation:ToggleWaypointAt(rec, catID)
 end
 
 ---------------------------------------------------------------------------
--- Copying and sharing through ordinary chat map-pin links
+-- Copyable waypoint text, made clickable locally by the receiving addon
 ---------------------------------------------------------------------------
 local function LinkLabel(label)
 	-- Labels are display text, never hyperlink markup. Keep room for the payload
@@ -120,7 +120,9 @@ function Navigation:GetWaypointLink(rec)
 		if rect and rect.cont == rec.c then
 			local x, y = ns.WorldToMapRect(rect, rec.x, rec.y)
 			if x >= 0 and x <= 1 and y >= 0 and y <= 1 then
-				return ("|cffffff00|Hworldmap:%d:%d:%d|h[Wayfinder: %s]|h|r"):format(
+				-- The visible text carries the coordinates too: clipboard copies and
+				-- chat transports must not need to preserve hidden hyperlink markup.
+				return ("[Wayfinder:%d:%d:%d:%s]"):format(
 					mapID, math.floor(x * 10000 + 0.5), math.floor(y * 10000 + 0.5), LinkLabel(rec.n))
 			end
 		end
@@ -129,6 +131,55 @@ function Navigation:GetWaypointLink(rec)
 		if not mapID or mapID == 0 then break end
 	end
 	return nil
+end
+
+local function ValidPosition(mapID, x, y)
+	mapID, x, y = tonumber(mapID), tonumber(x), tonumber(y)
+	if not mapID or not x or not y or mapID < 1 or mapID > 2147483647
+		or x < 0 or x > 10000 or y < 0 or y > 10000 then return nil end
+	if not C_Map.GetMapInfo(mapID) or not ns.GetMapRect(mapID) then return nil end
+	return mapID, x, y
+end
+
+local function ParseShare(text)
+	if type(text) ~= "string" or #text > 128 then return nil end
+	local mapID, x, y, label = text:match("^%[Wayfinder:(%d+):(%d+):(%d+):([^|%c%[%]]*)%]$")
+	mapID, x, y = ValidPosition(mapID, x, y)
+	if not mapID or #label > 80 then return nil end
+	return mapID, x, y, label
+end
+
+-- A message filter changes only the local rendering. The wire/clipboard format
+-- remains ordinary text, and receiving a message never creates a waypoint.
+function Navigation:FormatWaypointMessage(message)
+	if not ns.Readable(message) or type(message) ~= "string" then return message end
+	local function Decorate(plain)
+		return (plain:gsub("%[Wayfinder:[^%]]*%]", function(token)
+			local mapID, x, y, label = ParseShare(token)
+			if not mapID then return token end
+			return ("|cffffff00|Hwayfinder:%d:%d:%d:%s|h%s|h|r"):format(mapID, x, y, label, token)
+		end))
+	end
+	-- Don't nest links if another filter (or another chat window) already
+	-- formatted the token, or if it appears in an unrelated hyperlink.
+	local parts, cursor = {}, 1
+	while true do
+		local first, last = message:find("|H[^|]*|h.-|h", cursor)
+		if not first then
+			parts[#parts + 1] = Decorate(message:sub(cursor))
+			break
+		end
+		parts[#parts + 1] = Decorate(message:sub(cursor, first - 1))
+		parts[#parts + 1] = message:sub(first, last)
+		cursor = last + 1
+	end
+	return table.concat(parts)
+end
+
+function Navigation:ImportWaypointShare(text)
+	local mapID, x, y, label = ParseShare(text)
+	if not mapID then return false end
+	return self:SetWaypointOnMap(mapID, x / 10000, y / 10000, label ~= "" and label or nil)
 end
 
 function Navigation:CopyWaypoint(rec)
@@ -150,12 +201,14 @@ function Navigation:ReceiveWaypointLink(link, text, button)
 	if button ~= "LeftButton" or IsModifiedClick() or type(link) ~= "string" or #link > 128 then
 		return false
 	end
-	local mapID, x, y = link:match("^worldmap:(%d+):(%d+):(%d+)$")
-	mapID, x, y = tonumber(mapID), tonumber(x), tonumber(y)
-	if not mapID or mapID < 1 or mapID > 2147483647 or x > 10000 or y > 10000 then
-		return false
+	local share = link:match("^wayfinder:(.*)$")
+	if share then
+		return self:ImportWaypointShare("[Wayfinder:" .. share .. "]")
 	end
-	if not C_Map.GetMapInfo(mapID) then return false end
+	-- Continue to accept standard game map-pin links and 1.3.1's links.
+	local mapID, x, y = link:match("^worldmap:(%d+):(%d+):(%d+)$")
+	mapID, x, y = ValidPosition(mapID, x, y)
+	if not mapID then return false end
 	local label = type(text) == "string" and text:match("|h%[Wayfinder: (.-)%]|h")
 	label = label and LinkLabel(label)
 	return self:SetWaypointOnMap(mapID, x / 10000, y / 10000, label ~= "" and label or nil)
@@ -416,10 +469,32 @@ function Navigation:OnLogin()
 	self.arrow = arrow
 	self:PlaceArrow()
 	self:RefreshArrow()
-	-- Keep Blizzard's map opening and other addons' handlers intact. Native
-	-- worldmap links survive chat validation and also work without Wayfinder.
+	-- Register our local link type so Blizzard won't try to show an item tooltip.
+	LinkUtil.RegisterLinkHandler("wayfinder", function(link, text, _, context)
+		if context.button == "LeftButton" and IsModifiedClick("CHATLINK") then
+			-- Re-sharing uses the copyable token, never a custom link on the wire.
+			local token = "[Wayfinder:" .. link:sub(11) .. "]"
+			if ParseShare(token) then
+				if not ChatFrameUtil.InsertLink(token) then ChatFrameUtil.OpenChat(token) end
+			end
+		else
+			self:ReceiveWaypointLink(link, text, context.button)
+		end
+	end)
+	local function ChatFilter(_, _, message, ...)
+		return false, self:FormatWaypointMessage(message), ...
+	end
+	for _, event in ipairs({ "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_WHISPER", "CHAT_MSG_WHISPER_INFORM",
+		"CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER", "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER", "CHAT_MSG_RAID_WARNING",
+		"CHAT_MSG_GUILD", "CHAT_MSG_OFFICER", "CHAT_MSG_CHANNEL", "CHAT_MSG_INSTANCE_CHAT", "CHAT_MSG_INSTANCE_CHAT_LEADER",
+		"CHAT_MSG_BN_WHISPER", "CHAT_MSG_BN_WHISPER_INFORM", "CHAT_MSG_COMMUNITIES_CHANNEL" }) do
+		ChatFrameUtil.AddMessageEventFilter(event, ChatFilter)
+	end
+	-- Keep the game's handler intact for native map-pin links.
 	hooksecurefunc("SetItemRef", function(link, text, button)
-		self:ReceiveWaypointLink(link, text, button)
+		if type(link) == "string" and link:match("^worldmap:") then
+			self:ReceiveWaypointLink(link, text, button)
+		end
 	end)
 	ns:On("SETTING_CHANGED", function(key)
 		if key == "arrowScale" then

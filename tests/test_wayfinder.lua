@@ -1018,7 +1018,7 @@ test("left-click copies the waypoint into chat without changing it", function()
 	mock.chatActive, mock.chatText, mock.chatOpened = false, nil, 0
 	pin:OnMouseClickAction("LeftButton")
 	eq(mock.chatOpened, 1, "opened chat")
-	eq(mock.chatText, "|cffffff00|Hworldmap:1429:5000:7000|h[Wayfinder: Meeting spot]|h|r", "shareable link")
+	eq(mock.chatText, "[Wayfinder:1429:5000:7000:Meeting spot]", "shareable text contains all coordinates")
 	eq(Nav:GetWaypoint(), wp, "waypoint retained")
 	mock.chatText = "Meet me here: "
 	pin:OnMouseClickAction("LeftButton")
@@ -1035,10 +1035,21 @@ end)
 
 test("shared chat links replace the recipient waypoint and appear on their map", function()
 	Nav:SetWaypointOnMap(1429, 0.50004, 0.70002, "Meeting spot")
-	local shared = Nav:GetWaypointLink()
-	local payload = shared:match("|H(.-)|h")
+	mock.chatActive, mock.chatText = false, nil
+	Nav:CopyWaypoint()
+	local sharedText = mock.chatText -- the text actually sent / copied
 	Nav:SetWaypointOnMap(1414, 0.5, 0.5, "Recipient's old waypoint")
-	-- Clicking chat runs Blizzard's handler as well as Wayfinder's secure hook.
+	local before = Nav:GetWaypoint()
+	local filter = mock.chatFilters.CHAT_MSG_WHISPER[1]
+	local blocked, shared, sender, language, channel = filter(nil, "CHAT_MSG_WHISPER", sharedText, "Sender", "Common", 0)
+	eq(blocked, false, "message not blocked")
+	eq(sender, "Sender", "sender preserved")
+	eq(language, "Common", "language preserved")
+	eq(channel, 0, "channel preserved")
+	eq(Nav:GetWaypoint(), before, "receiving does not add until clicked")
+	local payload = shared:match("|H(.-)|h")
+	eq(payload, "wayfinder:1429:5000:7000:Meeting spot", "recipient renders clickable link")
+	mock.itemRef = nil
 	SetItemRef(payload, shared, "LeftButton")
 	local wp = Nav:GetWaypoint()
 	eq(wp.n, "Meeting spot", "shared label retained")
@@ -1049,7 +1060,7 @@ test("shared chat links replace the recipient waypoint and appear on their map",
 	near(wp.y, wy, 1e-6, "west")
 	eq(ns.db.waypoints[ns:GetCharacterKey()], wp, "saved")
 	ok(WayfinderArrow.shown, "arrow enabled")
-	eq(mock.itemRef.link, payload, "Blizzard handler preserved")
+	eq(mock.itemRef, nil, "custom link handled without item tooltip")
 	WorldMapFrame.mapID = 1429
 	WorldMapFrame:RefreshProviders()
 	local found
@@ -1061,6 +1072,7 @@ test("shared chat links replace the recipient waypoint and appear on their map",
 	SetItemRef("worldmap:1429:5000:7000", "|Hworldmap:1429:5000:7000|h[Map Pin Location]|h", "LeftButton")
 	eq(Nav:GetWaypoint().n, "Elwynn Forest 50.0, 70.0", "native link accepted")
 	Nav:ClearWaypoint()
+	mock.chatActive, mock.chatText = false, nil
 end)
 
 test("chat links ignore other links, malformed positions and modified clicks", function()
@@ -1094,14 +1106,14 @@ test("sharing uses a containing parent map and safe bounded UTF-8 labels", funct
 	local c, wx, wy = ns.MapToWorld(1415, 0.6, 0.3)
 	-- Deliberately use a hint zone that does not contain the detail-view point.
 	local link = Nav:GetWaypointLink({ c = c, x = wx, y = wy, m = 1429, n = "Outside Elwynn" })
-	ok(link and link:find("|Hworldmap:1415:6000:3000|h", 1, true), "uses containing continent")
+	ok(link and link:find("[Wayfinder:1415:6000:3000:", 1, true), "uses containing continent")
 	local rec = { c = c, x = wx, y = wy, m = 1415, n = "Bad|Hitem:1|h[markup]\n" }
 	link = Nav:GetWaypointLink(rec)
-	local display = link:match("|h%[(.-)%]|h")
+	local display = link:match("^%[Wayfinder:%d+:%d+:%d+:(.-)%]$")
 	ok(not display:find("|", 1, true) and not display:find("\n", 1, true), "markup and controls removed")
 	rec.n = "A" .. string.rep("\195\169", 100)
 	link = Nav:GetWaypointLink(rec)
-	display = link:match("|h%[Wayfinder: (.-)%]|h")
+	display = link:match("^%[Wayfinder:%d+:%d+:%d+:(.-)%]$")
 	eq(display, "A" .. string.rep("\195\169", 39), "truncation keeps complete UTF-8 characters")
 	ok(#link < 255, "fits chat")
 	eq(Nav:GetWaypointLink({ c = 99999, x = 0, y = 0, m = 1429 }), nil, "unshareable point rejected")
@@ -1153,6 +1165,106 @@ test("share slash command prepares chat and explains a missing waypoint", functi
 	eq(mock.chatText, Nav:GetWaypointLink(), "share command copies")
 	Nav:ClearWaypoint()
 	mock.chatActive, mock.chatText = false, nil
+end)
+
+test("copying only a rendered link's visible text preserves the complete waypoint", function()
+	setPlayer(1429, 0.42, 0.65)
+	Nav:SetWaypointOnMap(1429, 0.5, 0.7, "Cafe \195\169: meet here")
+	local original = Nav:GetWaypoint()
+	local rendered = Nav:FormatWaypointMessage(Nav:GetWaypointLink())
+	-- Clipboard/external chat copies the display text, with all markup removed.
+	local pasted = rendered:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|H.-|h", ""):gsub("|h", ""):gsub("|r", "")
+	eq(pasted, "[Wayfinder:1429:5000:7000:Cafe \195\169: meet here]", "visible text contains coordinates and label")
+	Nav:ClearWaypoint()
+	local _, received = mock.chatFilters.CHAT_MSG_PARTY[1](nil, "CHAT_MSG_PARTY", "Meet at " .. pasted .. " please")
+	ok(received:find("|Hwayfinder:", 1, true), "pasted message becomes clickable")
+	SetItemRef(received:match("|H(.-)|h"), received, "LeftButton")
+	local wp = Nav:GetWaypoint()
+	eq(wp.n, original.n, "UTF-8 and colon in label retained")
+	near(wp.x, original.x, 1e-6, "same north")
+	near(wp.y, original.y, 1e-6, "same west")
+	Nav:ClearWaypoint()
+end)
+
+test("all supported chat channels render shares without losing event arguments", function()
+	local token = "[Wayfinder:1429:5000:7000:Meeting spot]"
+	local registered = 0
+	for event, filters in pairs(mock.chatFilters) do
+		registered = registered + 1
+		local function Check(blocked, message, sender, language, gap, guid, tail)
+			eq(select("#", blocked, message, sender, language, gap, guid, tail), 7, "argument count")
+			eq(blocked, false, "not blocked")
+			ok(message:find("|Hwayfinder:", 1, true), "link rendered in " .. event)
+			eq(sender, "Sender", "sender kept")
+			eq(language, "Common", "language kept")
+			eq(gap, nil, "nil argument kept")
+			eq(guid, "Player-123", "GUID kept")
+			eq(tail, false, "false trailing argument kept")
+		end
+		Check(filters[1](nil, event, token, "Sender", "Common", nil, "Player-123", false))
+	end
+	eq(registered, 17, "whispers, group, guild, channels and Battle.net covered")
+end)
+
+test("chat formatting leaves existing hyperlinks intact and handles multiple shares", function()
+	local a, b = "[Wayfinder:1429:5000:7000:First]", "[Wayfinder:1414:5000:5000:Second]"
+	local item = "|cffffffff|Hitem:123|h[Item]|h|r"
+	local formatted = Nav:FormatWaypointMessage(a .. " and " .. item .. " and " .. b)
+	local _, links = formatted:gsub("|Hwayfinder:", "")
+	eq(links, 2, "both shares clickable")
+	ok(formatted:find(item, 1, true), "unrelated item link untouched")
+	eq(Nav:FormatWaypointMessage(formatted), formatted, "formatting twice never nests links")
+	local embedded = "|Hitem:123|h" .. a .. "|h"
+	eq(Nav:FormatWaypointMessage(embedded), embedded, "tokens inside other links untouched")
+end)
+
+test("invalid share text stays plain and custom links never open item tooltips", function()
+	Nav:SetWaypointOnMap(1429, 0.5, 0.7, "Keep me")
+	local before = Nav:GetWaypoint()
+	for _, token in ipairs({ "[Wayfinder:1429:10001:5000:Bad]", "[Wayfinder:999999:5000:5000:Bad]",
+		"[Wayfinder:947:5000:5000:No geometry]", "[Wayfinder:1429:5000:5000]",
+		"[Wayfinder:1429:-1:5000:Bad]", "[Wayfinder:1429:5000:5000:" .. string.rep("A", 81) .. "]" }) do
+		eq(Nav:FormatWaypointMessage(token), token, "invalid token not linked")
+		ok(not Nav:ImportWaypointShare(token), "invalid token not imported")
+		eq(Nav:GetWaypoint(), before, "waypoint unchanged")
+	end
+	mock.itemRef = nil
+	SetItemRef("wayfinder:1429:10001:5000:Bad", "", "LeftButton")
+	eq(mock.itemRef, nil, "invalid custom link does not fall through to item tooltip")
+	eq(Nav:GetWaypoint(), before, "invalid custom link doesn't replace")
+	for _, button in ipairs({ "RightButton", "MiddleButton" }) do
+		SetItemRef("wayfinder:1429:5000:7000:New", "", button)
+		eq(Nav:GetWaypoint(), before, "other buttons do not add")
+	end
+	mock.modifiedClick = true
+	SetItemRef("wayfinder:1429:5000:7000:New", "", "LeftButton")
+	mock.modifiedClick = false
+	eq(Nav:GetWaypoint(), before, "modified click doesn't add")
+	Nav:ClearWaypoint()
+end)
+
+test("shift-clicking a received share copies plain text for sharing again", function()
+	local token = "[Wayfinder:1429:5000:7000:Meeting spot]"
+	local rendered = Nav:FormatWaypointMessage(token)
+	Nav:ClearWaypoint()
+	mock.shift, mock.chatActive, mock.chatText = true, false, nil
+	SetItemRef(rendered:match("|H(.-)|h"), rendered, "LeftButton")
+	mock.shift = false
+	eq(mock.chatText, token, "re-share contains full plain-text waypoint")
+	eq(Nav:GetWaypoint(), nil, "shift-click doesn't set a waypoint")
+	mock.chatActive, mock.chatText = false, nil
+end)
+
+test("add slash command imports pasted waypoint text from outside the game", function()
+	Nav:ClearWaypoint()
+	SlashCmdList.WAYFINDER("add [Wayfinder:1429:5000:7000:Pasted meeting]")
+	eq(Nav:GetWaypoint().n, "Pasted meeting", "pasted waypoint added")
+	local before = Nav:GetWaypoint()
+	mock.printed = ""
+	SlashCmdList.WAYFINDER("add broken")
+	eq(Nav:GetWaypoint(), before, "invalid paste does not replace")
+	ok(mock.printed:find("Usage:", 1, true), "bad paste explained")
+	Nav:ClearWaypoint()
 end)
 
 test("no detail view on city maps", function()

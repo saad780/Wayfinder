@@ -46,7 +46,10 @@ function canaccessvalue(v) return not issecretvalue(v) end
 mock.SECRET = { __secret = true }
 function InCombatLockdown() return mock.inCombat or false end
 function IsShiftKeyDown() return mock.shift or false end
-function IsModifiedClick() return mock.shift or mock.modifiedClick or false end
+function IsModifiedClick(action)
+	if action == "CHATLINK" then return mock.shift or false end
+	return mock.shift or mock.modifiedClick or false
+end
 function IsMouseButtonDown(button) return mock.mouseDown == button end
 function GetCursorPosition() return mock.cursorX or 500, mock.cursorY or 350 end
 function GetPlayerFacing() return mock.facing or 0.5 end
@@ -93,7 +96,26 @@ function ChatFrameUtil.OpenChat(text)
 	mock.chatActive, mock.chatText = true, text
 	mock.chatOpened = (mock.chatOpened or 0) + 1
 end
+mock.chatFilters = {}
+function ChatFrameUtil.AddMessageEventFilter(event, filter)
+	mock.chatFilters[event] = mock.chatFilters[event] or {}
+	table.insert(mock.chatFilters[event], filter)
+end
+LinkUtil = {}
+LinkProcessorResponse = { Unhandled = 1, Handled = 2 }
+local linkHandlers = {}
+function LinkUtil.RegisterLinkHandler(linkType, handler)
+	assert(not linkHandlers[linkType], "duplicate link handler")
+	linkHandlers[linkType] = handler
+end
+function LinkUtil.ProcessLink(link, text, context)
+	local linkType, options = link:match("^([^:]+):?(.*)$")
+	local handler = linkHandlers[linkType]
+	if not handler then return LinkProcessorResponse.Unhandled end
+	return handler(link, text, { type = linkType, options = options }, context) or LinkProcessorResponse.Handled
+end
 function SetItemRef(link, text, button)
+	if LinkUtil.ProcessLink(link, text, { button = button }) == LinkProcessorResponse.Handled then return end
 	mock.itemRef = { link = link, text = text, button = button }
 end
 function print(...) mock.printed = (mock.printed or "") .. table.concat({ ... }, " ") .. "\n" end
