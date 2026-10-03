@@ -14,6 +14,16 @@ ns.Tooltip = Tooltip
 
 function Tooltip:Show(owner, rec, catID)
 	GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+	if rec.waypoint then
+		GameTooltip:SetText(rec.n, 1, 0.82, 0)
+		if rec.where and rec.where ~= rec.n then
+			GameTooltip:AddLine(rec.where, 0.8, 0.8, 0.8)
+		end
+		GameTooltip:AddLine("Waypoint", 0.6, 0.85, 1)
+		GameTooltip:AddLine("Middle-click to remove", 0.5, 0.5, 0.5)
+		GameTooltip:Show()
+		return
+	end
 	local cat = ns.CategoryByID[catID]
 	GameTooltip:SetText(rec.n or (cat and cat.label) or UNKNOWN, 1, 0.82, 0)
 	if rec.s and rec.s ~= rec.n then
@@ -33,6 +43,7 @@ function Tooltip:Show(owner, rec, catID)
 	elseif (rec.a or 0) > APPROXIMATE_YARDS then
 		GameTooltip:AddLine(("Approximate (within ~%d yards)"):format(rec.a), 1, 0.6, 0.2)
 	end
+	GameTooltip:AddLine("Middle-click to set a waypoint here", 0.5, 0.5, 0.5)
 	GameTooltip:AddLine("Shift-click to remove", 0.5, 0.5, 0.5)
 	GameTooltip:Show()
 end
@@ -114,7 +125,9 @@ end
 
 function WayfinderMapPinMixin:OnAcquired(rec, catID, x, y)
 	self.rec, self.catID = rec, catID
-	local size = 18 * (ns:GetSetting("iconScale") or 1)
+	-- the waypoint sits above everything else
+	self:UseFrameLevelType(rec.waypoint and "PIN_FRAME_LEVEL_WAYPOINT_LOCATION" or "PIN_FRAME_LEVEL_AREA_POI")
+	local size = (rec.waypoint and 24 or 18) * (ns:GetSetting("iconScale") or 1)
 	self:SetSize(size, size)
 	ns.Categories:ApplyIcon(self.Icon, catID, rec)
 	ns.Categories:ApplyIcon(self.Highlight, catID, rec)
@@ -131,8 +144,14 @@ function WayfinderMapPinMixin:OnMouseLeave()
 end
 
 function WayfinderMapPinMixin:OnMouseClickAction(button)
-	if button == "LeftButton" and IsShiftKeyDown() then
-		ns:RemoveLocation(self.rec)
+	if button == "MiddleButton" then
+		ns.Navigation:ToggleWaypointAt(self.rec, self.catID)
+	elseif button == "LeftButton" and IsShiftKeyDown() then
+		if self.rec.waypoint then
+			ns.Navigation:ClearWaypoint()
+		else
+			ns:RemoveLocation(self.rec)
+		end
 	end
 end
 
@@ -178,6 +197,14 @@ function provider:RefreshAllData()
 	end
 	ns.Database:Query(rect.cont, minX, maxX, minY, maxY, Add)
 	ns.Seeds:Query(rect.cont, minX, maxX, minY, maxY, Add)
+
+	local waypoint = ns.Navigation:GetWaypoint()
+	if waypoint and waypoint.c == rect.cont and ns.BelongsToMap(waypoint, mapID) then
+		local x, y = ns.WorldToMapRect(rect, waypoint.x, waypoint.y)
+		if x >= 0 and x <= 1 and y >= 0 and y <= 1 then
+			map:AcquirePin(PIN_TEMPLATE, waypoint, "waypoint", x, y)
+		end
+	end
 end
 
 function MapPins:Refresh()
@@ -209,4 +236,5 @@ function MapPins:OnLogin()
 	ns:On("SETTING_CHANGED", Refresh)
 	ns:On("DATA_CHANGED", Refresh)
 	ns:On("EXPLORED", Refresh)
+	ns:On("WAYPOINT_CHANGED", Refresh)
 end

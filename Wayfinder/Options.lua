@@ -83,6 +83,12 @@ function Options:BuildPanel()
 			return value == 0 and "Minimap" or ("%d yd"):format(value)
 		end)
 
+	Header(layout, "Waypoints")
+	Checkbox(category, "showArrow", "Show the waypoint arrow",
+		"Middle-click the map (or any icon) to set a waypoint; a floating arrow then points the way. Drag the arrow to move it, right-click it to remove the waypoint.")
+	Checkbox(category, "clearOnArrival", "Remove the waypoint when you arrive")
+	Slider(category, "arrowScale", "Arrow size", nil, 0.5, 2, 0.1, Percent)
+
 	Header(layout, "World map")
 	Checkbox(category, "showOnWorldMap", "Show icons on the world map")
 	Checkbox(category, "showOnContinent", "Also show icons on continent maps")

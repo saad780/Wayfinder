@@ -48,7 +48,7 @@ function InCombatLockdown() return mock.inCombat or false end
 function IsShiftKeyDown() return mock.shift or false end
 function IsMouseButtonDown(button) return mock.mouseDown == button end
 function GetCursorPosition() return mock.cursorX or 500, mock.cursorY or 350 end
-function GetPlayerFacing() return 0.5 end
+function GetPlayerFacing() return mock.facing or 0.5 end
 function GetRealmName() return "TestRealm" end
 function GetNormalizedRealmName() return "TestRealm" end
 function UnitName(unit) if unit == "player" then return "Tester" end return mock.units[unit] and mock.units[unit].name end
@@ -177,6 +177,7 @@ function Region:SetText(t) self.text = t end
 function Region:SetFormattedText(f, ...) self.text = string.format(f, ...) end
 function Region:GetText() return self.text end
 function Region:SetVertexColor(r, g, b) self.vertex = { r, g, b } end
+function Region:SetRotation(r) self.rotation = r end
 function Region:SetColorTexture(r, g, b, a) self.texture = "color"; self.color = { r, g, b, a } end
 function Region:SetAlpha(a) self.alpha = a end
 function Region:SetTexCoord(...) self.texCoord = { ... } end
@@ -200,6 +201,9 @@ function CreateFrame(kind, name, parent, template)
 	return f
 end
 
+SOUNDKIT = { UI_MAP_WAYPOINT_CLICK_TO_PLACE = 1, UI_MAP_WAYPOINT_REMOVE = 2, MAP_PING = 3 }
+function PlaySound(id) mock.sounds = mock.sounds or {}; table.insert(mock.sounds, id) end
+MapUtil = { GetDisplayableMapForPlayer = function() return mock.playerMap end }
 UIParent = CreateFrame("Frame", "UIParent")
 UIParent:SetSize(1920, 1080)
 GameTooltip = CreateFrame("GameTooltip", "GameTooltip")
@@ -452,12 +456,16 @@ container:SetSize(1002, 668)
 container.viewRect = { left = 0.3, right = 0.6, top = 0.5, bottom = 0.8 }
 container.atMax = true
 function container:GetViewRect() return self.viewRect end
+function container:GetNormalizedCursorPosition() return mock.mapCursorX or 0.5, mock.mapCursorY or 0.5 end
 function container:IsAtMaxZoom() return self.atMax end
 function container:GetCanvasScale() return 2 end
 function container:CalculateScrollExtentsAtScale() return 0.25, 0.75, 0.25, 0.75 end
 WorldMapFrame.ScrollContainer = container
 function WorldMapFrame:GetCanvasContainer() return self.ScrollContainer end
 function WorldMapFrame:GetMapID() return self.mapID end
+function WorldMapFrame:SetMapID(id) self.mapID = id end
+function WorldMapFrame:IsAtMinZoom() return mock.atMinZoom ~= false end
+WorldMapFrame.WorldMapTrackingPinButton = CreateFrame("Button", nil, WorldMapFrame)
 function WorldMapFrame:AddDataProvider(p) table.insert(self.providers, p); p:OnAdded(self) end
 function WorldMapFrame:GetPinFrameLevelsManager() return { maxLevel = 3100 } end
 function WorldMapFrame:PanTo(x, y) self.pannedTo = { x, y } end

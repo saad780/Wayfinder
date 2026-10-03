@@ -102,6 +102,10 @@ end
 -- Applies a category icon (optionally specialised for a location) to a texture.
 function Categories:ApplyIcon(texture, catID, poi)
 	texture:SetTexCoord(0, 1, 0, 1)
+	if catID == "waypoint" then
+		texture:SetTexture(MEDIA .. "Waypoint")
+		return
+	end
 	if catID == "transport" then
 		texture:SetTexture(MEDIA .. (TRANSPORT_MEDIA[poi and poi.sub] or "Boat"))
 		return

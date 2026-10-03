@@ -154,14 +154,119 @@ def arrow():
     return img
 
 
+def locate():
+    """Crosshair for the 'show my location' map button."""
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    for colour, grow in ((DARK, 2.5), ((255, 214, 90, 255), 0)):
+        w = u(3 + grow)
+        d.ellipse([u(16), u(16), u(48), u(48)], outline=colour, width=w)
+        for x0, y0, x1, y1 in ((32, 4, 32, 20), (32, 44, 32, 60), (4, 32, 20, 32), (44, 32, 60, 32)):
+            d.line([(u(x0), u(y0)), (u(x1), u(y1))], fill=colour, width=w)
+        r = 5 + grow
+        d.ellipse([u(32 - r), u(32 - r), u(32 + r), u(32 + r)], fill=colour)
+    return img
+
+
+def waypoint_pin():
+    """Teardrop map pin marking the waypoint."""
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    for colour, grow in ((DARK, 3), ((255, 200, 40, 255), 0)):
+        d.ellipse([u(16 - grow), u(4 - grow), u(48 + grow), u(36 + grow)], fill=colour)
+        poly(d, [(18 - grow, 26), (46 + grow, 26), (32, 60 + grow)], colour)
+    d.ellipse([u(25), u(13), u(39), u(27)], fill=(120, 60, 10, 255))
+    return img
+
+
+# The floating waypoint arrow is built from four 128x128 layers, tinted in game.
+BIG = 128
+
+
+def soft_disc(radius, feather, colour):
+    """A filled disc whose alpha falls off over `feather` pixels (at 4x)."""
+    size = BIG * SS
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    px = img.load()
+    c = size / 2
+    for y in range(size):
+        for x in range(size):
+            dist = math.hypot(x + 0.5 - c, y + 0.5 - c)
+            t = min(max((radius - dist) / feather, 0.0), 1.0)
+            if t > 0:
+                px[x, y] = colour[:3] + (int(colour[3] * t * t * (3 - 2 * t)),)
+    return img
+
+
+def save_big(img, name):
+    img = img.resize((BIG, BIG), Image.LANCZOS)
+    path = os.path.join(OUT, "Arrow")
+    os.makedirs(path, exist_ok=True)
+    img.save(os.path.join(path, name + ".tga"))
+    print("wrote Arrow/" + name)
+
+
+def arrow_glow():
+    return soft_disc(64 * SS, 34 * SS, (255, 255, 255, 255))
+
+
+def arrow_disc():
+    # deep slate disc with a soft rim shadow and a slightly lighter top
+    size = BIG * SS
+    img = soft_disc(52 * SS, 6 * SS, (10, 12, 18, 235))
+    shade = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shade)
+    for i in range(40):
+        a = int(26 * (1 - i / 40))
+        r = (46 - i * 0.6) * SS
+        sd.ellipse([size / 2 - r, size / 2 - r - 10 * SS, size / 2 + r, size / 2 + r - 10 * SS], fill=(70, 90, 130, a))
+    img.alpha_composite(shade)
+    mask = soft_disc(48 * SS, 2 * SS, (255, 255, 255, 255)).getchannel("A")
+    inner = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    inner.paste(img, (0, 0), mask)
+    base = soft_disc(52 * SS, 6 * SS, (10, 12, 18, 235))
+    base.alpha_composite(inner)
+    return base
+
+
+def arrow_ring():
+    size = BIG * SS
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    c, r = size / 2, 50 * SS
+    d.ellipse([c - r, c - r, c + r, c + r], outline=(255, 255, 255, 255), width=3 * SS)
+    r2 = 44 * SS
+    d.ellipse([c - r2, c - r2, c + r2, c + r2], outline=(255, 255, 255, 90), width=1 * SS)
+    return img
+
+
+def arrow_head():
+    """Notched navigation arrowhead, lit from the left."""
+    size = BIG * SS
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    def p(x, y):
+        return (x * SS * 2, y * SS * 2)  # design grid is 64 wide
+    # corners stay inside the inner ring at any rotation
+    tip, left, notch, right = p(32, 15), p(19.5, 45), p(32, 38.5), p(44.5, 45)
+    shadow = [(x + 2 * SS, y + 3 * SS) for x, y in (tip, left, notch, right)]
+    d.polygon(shadow, fill=(0, 0, 0, 110))
+    d.polygon([tip, left, notch], fill=(255, 255, 255, 255))
+    d.polygon([tip, notch, right], fill=(196, 196, 196, 255))
+    return img
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     for name, fn in [
         ("Boat", boat), ("Zeppelin", zeppelin), ("Tram", tram), ("Portal", portal),
         ("Vendor", vendor), ("WeaponMaster", weaponmaster), ("Spirit", spirit),
         ("Generic", generic), ("Quest", quest), ("PlayerArrow", arrow),
+        ("Locate", locate), ("Waypoint", waypoint_pin),
     ]:
         save(fn(), name)
+    for name, fn in [("Glow", arrow_glow), ("Disc", arrow_disc), ("Ring", arrow_ring), ("Head", arrow_head)]:
+        save_big(fn(), name)
 
 
 if __name__ == "__main__":

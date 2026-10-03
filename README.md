@@ -6,6 +6,7 @@ A world map addon for **WoW: Forever** (interface 16001, client 1.60.1).
 - **It fills in as you go.** Everything your minimap shows while you walk, ride or fly is marked as explored. The areas your character discovered before you installed the addon are imported from the world map.
 - **It remembers town services.** Vendors, repair, mailboxes, quest givers, flight masters, boats, zeppelins, the tram, auctioneers, bankers, innkeepers, class and profession trainers, weapon masters, stable masters, battlemasters and spirit healers all get icons. They appear on the world map and in the detail view.
 - **Every icon type can be turned on or off.** Use the map button, the options panel, or `/wf show|hide <category>`.
+- **It gets you there.** A button returns the map to where you are. Middle-click anywhere (or on any icon) to drop a waypoint, and a floating arrow points the way.
 
 ## Using it
 
@@ -14,8 +15,11 @@ A world map addon for **WoW: Forever** (interface 16001, client 1.60.1).
 | World map, fully zoomed in, scroll up | Opens the detail view at exactly what the map was showing |
 | Detail view | Scroll to zoom toward the cursor, drag to pan. Right-click, **Back to map**, or zoom all the way out to return. |
 | Map button (top-right of the map) | Turn icon types on or off, choose how unexplored terrain looks, open the detail view, open settings |
+| Locate button (top-left of the map, next to Blizzard's map pin button) | Switches the map to your zone and slides it to you. In the detail view it re-centres on you. |
+| Middle-click the map, the detail view, or an icon | Sets a waypoint there. Middle-click the waypoint's pin to remove it. |
+| Waypoint arrow | Points toward the waypoint and shows the distance; turns green when you're close. Drag it to move it; right-click it to remove the waypoint. Cleared automatically when you arrive. |
 | Shift-click an icon | Remove it (for example, a vendor who moved) |
-| `/wf` | Options. `/wf stats`, `/wf reveal [hide\|dim\|show]`, `/wf show all`, `/wf hide mailbox`, `/wf import`, `/wf reset pois` |
+| `/wf` | Options. `/wf stats`, `/wf reveal [hide\|dim\|show]`, `/wf show all`, `/wf hide mailbox`, `/wf way <x> <y> [label]`, `/wf clear`, `/wf arrow`, `/wf import`, `/wf reset pois` |
 
 Options are also under *Esc → Options → AddOns → Wayfinder*.
 

@@ -134,6 +134,9 @@ ns.defaults = {
 	revealRadius = 0,            -- yards; 0 = whatever the minimap currently shows
 	importExploration = true,    -- seed exploration from the world map's discovered areas
 	showLiveQuests = true,       -- available-quest markers from the game in the detail view
+	showArrow = true,            -- floating arrow pointing at the waypoint
+	arrowScale = 1.0,
+	clearOnArrival = true,       -- remove the waypoint once you reach it
 	debug = false,
 }
 
@@ -159,6 +162,7 @@ local function InitializeDatabase()
 	db.hidden = db.hidden or {}
 	db.explored = db.explored or {}
 	db.imported = db.imported or {}
+	db.waypoints = db.waypoints or {}
 	-- 1.0 had an on/off "show unexplored terrain" setting.
 	if db.settings.revealAll ~= nil then
 		if db.settings.revealAll == true and db.settings.unexploredTerrain == nil then
@@ -330,6 +334,21 @@ local function HandleSlash(input)
 		else
 			ns.Print("Position unavailable here.")
 		end
+	elseif command == "way" then
+		-- /wf way 42.1 65.3 [label], on the zone you are in
+		local x, y, label = rest:match("^([%d%.]+)[,%s]+([%d%.]+)%s*(.*)$")
+		local mapID = C_Map.GetBestMapForUnit("player")
+		x, y = tonumber(x), tonumber(y)
+		if not (x and y and mapID) then
+			ns.Print("Usage: /wf way <x> <y> [label]  (coordinates in the zone you are in)")
+		else
+			ns.Navigation:SetWaypointOnMap(mapID, x / 100, y / 100, label ~= "" and label or nil)
+		end
+	elseif command == "clear" then
+		ns.Navigation:ClearWaypoint()
+	elseif command == "arrow" then
+		ns:SetSetting("showArrow", not ns:GetSetting("showArrow"))
+		ns.Print("Waypoint arrow " .. (ns:GetSetting("showArrow") and "shown." or "hidden."))
 	elseif command == "import" then
 		ns.Exploration:QueueImportAll(true)
 		ns.Print("Re-importing explored areas from the world map in the background.")
@@ -346,6 +365,9 @@ local function HandleSlash(input)
 		print("   /wf show|hide <category|all>")
 		print("   /wf reveal [hide|dim|show]  - how unexplored terrain is drawn")
 		print("   /wf stats  - what has been recorded")
+		print("   /wf way <x> <y> [label]  - waypoint in the zone you are in")
+		print("   /wf clear  - remove the waypoint")
+		print("   /wf arrow  - show or hide the waypoint arrow")
 		print("   /wf import  - re-read explored areas from the world map")
 		print("   /wf reset pois|exploration|all")
 	end

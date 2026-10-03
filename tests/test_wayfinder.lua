@@ -840,6 +840,171 @@ test("removing an icon from the map", function()
 end)
 
 ---------------------------------------------------------------------------
+-- Navigation: waypoints, the arrow, "show my location"
+---------------------------------------------------------------------------
+local Nav = ns.Navigation
+
+-- Puts the waypoint at an offset in yards (north, west) from the player.
+local function WaypointFromPlayer(north, west)
+	local cont, wx, wy = ns.GetPlayerWorld()
+	Nav:SetWaypoint(cont, wx + north, wy + west, "Test spot")
+end
+
+test("middle-clicking the world map sets a waypoint", function()
+	Nav:ClearWaypoint()
+	WorldMapFrame.mapID = 1429
+	mock.mapCursorX, mock.mapCursorY = 0.5, 0.7
+	local container = WorldMapFrame.ScrollContainer
+	container.scripts.OnMouseUp(container, "MiddleButton")
+	local wp = Nav:GetWaypoint()
+	ok(wp, "waypoint set")
+	local cont, wx, wy = ns.MapToWorld(1429, 0.5, 0.7)
+	eq(wp.c, cont, "continent")
+	near(wp.x, wx, 1e-6, "north")
+	near(wp.y, wy, 1e-6, "west")
+	eq(wp.n, "Elwynn Forest 50.0, 70.0", "named after the place")
+	eq(ns.db.waypoints[ns:GetCharacterKey()], wp, "saved for this character")
+	ok(WayfinderArrow.shown, "arrow shown")
+	-- other mouse buttons don't
+	Nav:ClearWaypoint()
+	container.scripts.OnMouseUp(container, "LeftButton")
+	eq(Nav:GetWaypoint(), nil, "left click places nothing")
+	ok(not WayfinderArrow.shown, "arrow hidden without a waypoint")
+end)
+
+test("the arrow points at the waypoint relative to where you face", function()
+	setPlayer(1429, 0.42, 0.65)
+	mock.facing = 0 -- facing north
+	WaypointFromPlayer(100, 0) -- 100 yards north
+	mock.Advance(0.1)
+	local arrow = WayfinderArrow
+	near(arrow.head.rotation, 0, 1e-9, "straight ahead")
+	eq(arrow.distance.text, "100 yd", "distance")
+	WaypointFromPlayer(0, 100) -- due west: a quarter turn left
+	mock.Advance(0.1)
+	near(arrow.head.rotation, math.pi / 2, 1e-9, "points left")
+	mock.facing = math.pi / 2 -- now facing west
+	mock.Advance(0.1)
+	near(arrow.head.rotation, 0, 1e-9, "ahead once you turn to face it")
+	eq(arrow.head.vertex[2], 0.82, "gold while far")
+	WaypointFromPlayer(30, 0)
+	mock.Advance(0.1)
+	eq(arrow.head.vertex[2], 0.92, "green when close")
+	mock.printed = ""
+	WaypointFromPlayer(5, 0)
+	mock.Advance(0.1)
+	eq(Nav:GetWaypoint(), nil, "cleared on arrival")
+	ok(mock.printed:find("Arrived"), "arrival announced")
+	ok(not arrow.shown, "arrow hidden")
+	mock.facing = nil
+end)
+
+test("a waypoint on another continent", function()
+	local cont, wx, wy = ns.MapToWorld(1414, 0.5, 0.5)
+	Nav:SetWaypoint(cont, wx, wy, "Far shore")
+	mock.Advance(0.1)
+	ok(not WayfinderArrow.head.shown, "no direction")
+	eq(WayfinderArrow.distance.text, "Far away", "says so")
+	Nav:ClearWaypoint()
+end)
+
+test("waypoint pin on the world map; middle-click icons to set or remove", function()
+	setPlayer(1429, 0.42, 0.65)
+	WorldMapFrame.mapID = 1429
+	local cont, wx, wy = ns.GetPlayerWorld()
+	ns.Database:RecordNPC({ npcID = 9001, name = "Thomas", title = "Banker", cats = { bank = true },
+		cont = cont, wx = wx - 150, wy = wy + 40, mapID = 1429, accuracy = 4, source = "talk" })
+	WaypointFromPlayer(200, 50)
+	WorldMapFrame:RefreshProviders()
+	local waypointPin, poiPin
+	for _, pin in ipairs(WorldMapFrame.pins) do
+		if pin.rec.waypoint then waypointPin = pin elseif pin.rec.n and pin.rec.kind == "npc" then poiPin = pin end
+	end
+	ok(waypointPin, "waypoint pin on the map")
+	eq(waypointPin.catID, "waypoint", "waypoint icon")
+	eq(waypointPin.frameLevelType, "PIN_FRAME_LEVEL_WAYPOINT_LOCATION", "drawn above other icons")
+	waypointPin:OnMouseClickAction("MiddleButton")
+	eq(Nav:GetWaypoint(), nil, "middle-click removes it")
+	ok(poiPin, "a recorded NPC on the map")
+	poiPin:OnMouseClickAction("MiddleButton")
+	local wp = Nav:GetWaypoint()
+	ok(wp, "middle-click on an icon sets a waypoint")
+	eq(wp.n, poiPin.rec.n, "named after the NPC")
+	near(wp.x, poiPin.rec.x, 1e-9, "at the NPC")
+	Nav:ClearWaypoint()
+end)
+
+test("show my location: switches to your map, then slides to you", function()
+	local button = WayfinderLocateButton
+	eq(button.points.LEFT[1], WorldMapFrame.WorldMapTrackingPinButton, "beside Blizzard's map pin button")
+	setPlayer(1429, 0.42, 0.65)
+	WorldMapFrame.mapID = 1453
+	button.scripts.OnClick(button)
+	eq(WorldMapFrame.mapID, 1429, "switched to your zone")
+	WorldMapFrame.pannedTo = nil
+	mock.atMinZoom = true
+	button.scripts.OnClick(button)
+	eq(WorldMapFrame.pannedTo, nil, "nothing to slide when fully zoomed out")
+	mock.atMinZoom = false
+	button.scripts.OnClick(button)
+	near(WorldMapFrame.pannedTo[1], 0.42, 1e-9, "slid to you (x)")
+	near(WorldMapFrame.pannedTo[2], 0.65, 1e-9, "slid to you (y)")
+	mock.atMinZoom = nil
+end)
+
+test("detail view: show my location and middle-click waypoints", function()
+	WorldMapFrame.mapID = 1429
+	local container = WorldMapFrame.ScrollContainer
+	mock.time = mock.time + 1
+	container.scripts.OnMouseWheel(container, 1)
+	ok(ns.DetailView:IsActive(), "detail view open")
+	setPlayer(1429, 0.55, 0.75)
+	WayfinderLocateButton.scripts.OnClick(WayfinderLocateButton)
+	local _, px, py = ns.DetailView:GetCenter()
+	local _, wx, wy = ns.GetPlayerWorld()
+	local ex, ey = ns.WorldToPlane(wx, wy)
+	near(px, ex, 1e-6, "centred on you (x)")
+	near(py, ey, 1e-6, "centred on you (y)")
+	ok(ns.DetailView:IsActive(), "still in the detail view")
+	mock.Advance(1)
+	local view = WayfinderDetailView
+	Nav:ClearWaypoint()
+	mock.cursorX, mock.cursorY = 501, 334 -- the middle of the view, where you are
+	ns:SetSetting("clearOnArrival", false) -- or standing on it counts as arriving
+	view.scripts.OnMouseUp(view, "MiddleButton")
+	local wp = Nav:GetWaypoint()
+	ok(wp, "middle-click sets a waypoint")
+	local wpx, wpy = ns.WorldToPlane(wp.x, wp.y)
+	near(wpx, ex, 1e-6, "under the cursor (x)")
+	near(wpy, ey, 1e-6, "under the cursor (y)")
+	mock.cursorX, mock.cursorY = nil, nil
+	ns:SetSetting("clearOnArrival", true)
+	ns.DetailView:Exit()
+	Nav:ClearWaypoint()
+end)
+
+test("waypoint slash commands", function()
+	setPlayer(1429, 0.42, 0.65)
+	SlashCmdList.WAYFINDER("way 30.5 40 Goldshire")
+	local wp = Nav:GetWaypoint()
+	ok(wp, "set")
+	eq(wp.n, "Goldshire", "label")
+	local _, wx, wy = ns.MapToWorld(1429, 0.305, 0.40)
+	near(wp.x, wx, 1e-6, "position")
+	SlashCmdList.WAYFINDER("way 50,60")
+	eq(Nav:GetWaypoint().n, "Elwynn Forest 50.0, 60.0", "comma separated, default label")
+	mock.printed = ""
+	SlashCmdList.WAYFINDER("way somewhere")
+	ok(mock.printed:find("Usage"), "usage on bad input")
+	SlashCmdList.WAYFINDER("clear")
+	eq(Nav:GetWaypoint(), nil, "cleared")
+	SlashCmdList.WAYFINDER("arrow")
+	eq(ns:GetSetting("showArrow"), false, "arrow off")
+	SlashCmdList.WAYFINDER("arrow")
+	eq(ns:GetSetting("showArrow"), true, "arrow on")
+end)
+
+---------------------------------------------------------------------------
 local passed, failed = 0, 0
 for _, t in ipairs(tests) do
 	local success, err = pcall(t.fn)

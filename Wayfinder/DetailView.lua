@@ -499,7 +499,18 @@ local function PinOnMouseUp(pin, button)
 	if button == "LeftButton" then
 		local moved = DetailView:EndDrag()
 		if not moved and IsShiftKeyDown() and pin.rec and pin:IsMouseOver() then
-			ns:RemoveLocation(pin.rec)
+			if pin.rec.waypoint then
+				ns.Navigation:ClearWaypoint()
+			else
+				ns:RemoveLocation(pin.rec)
+			end
+		end
+	elseif button == "MiddleButton" and pin:IsMouseOver() then
+		if pin.rec then
+			ns.Navigation:ToggleWaypointAt(pin.rec, pin.catID)
+		elseif pin.quest then
+			local wx, wy = ns.PlaneToWorld(pin.px, pin.py)
+			ns.Navigation:SetWaypoint(cont, wx, wy, pin.quest.questName, underlayMapID)
 		end
 	end
 end
@@ -522,6 +533,7 @@ local function AcquirePin()
 		pin:SetScript("OnMouseUp", PinOnMouseUp)
 	end
 	pin.rec, pin.catID, pin.quest = nil, nil, nil
+	pin:SetFrameLevel(pinLayer:GetFrameLevel() + 1)
 	pin:Show()
 	activePins[#activePins + 1] = pin
 	return pin
@@ -598,6 +610,21 @@ local function RefreshPins()
 	ns.Database:Query(cont, minX, maxX, minY, maxY, Add)
 	ns.Seeds:Query(cont, minX, maxX, minY, maxY, Add)
 	AddQuestPins(l, r, t, b, size)
+
+	local waypoint = ns.Navigation:GetWaypoint()
+	if waypoint and waypoint.c == cont then
+		local px, py = ns.WorldToPlane(waypoint.x, waypoint.y)
+		if px >= l and px <= r and py >= t and py <= b then
+			local pin = AcquirePin()
+			pin.rec, pin.catID = waypoint, "waypoint"
+			pin.px, pin.py = px, py
+			pin:SetSize(size * 1.3, size * 1.3)
+			pin:SetFrameLevel(pinLayer:GetFrameLevel() + 2) -- above the other icons
+			ns.Categories:ApplyIcon(pin.icon, "waypoint")
+			ns.Categories:ApplyIcon(pin.highlight, "waypoint")
+			pin.icon:SetAlpha(1)
+		end
+	end
 	PositionPins()
 	DetailView.pinRect = { l, r, t, b }
 end
@@ -750,6 +777,22 @@ function DetailView:ZoomAt(factor, vx, vy)
 	ClampCenter()
 end
 
+-- Where the view is heading: continent and plane coordinates of its centre.
+function DetailView:GetCenter()
+	return cont, tcx, tcy
+end
+
+-- Slides the view over to the player; false when they are on another continent.
+function DetailView:CenterOnPlayer()
+	local pcont, wx, wy = ns.GetPlayerWorld()
+	if not active or pcont ~= cont then
+		return false
+	end
+	tcx, tcy = ns.WorldToPlane(wx, wy)
+	ClampCenter()
+	return true
+end
+
 function DetailView:BeginDrag()
 	dragging, dragMoved = true, false
 	dragX, dragY = CursorInView()
@@ -839,6 +882,10 @@ local function CreateFrames()
 			DetailView:EndDrag()
 		elseif button == "RightButton" then
 			DetailView:Exit()
+		elseif button == "MiddleButton" then
+			local vx, vy = CursorInView()
+			local wx, wy = ns.PlaneToWorld(ViewToPlane(vx, vy, cx, cy, scale))
+			ns.Navigation:SetWaypoint(cont, wx, wy, nil, underlayMapID)
 		end
 	end)
 	view:SetScript("OnSizeChanged", function()
@@ -1016,6 +1063,7 @@ function DetailView:OnLogin()
 	end
 	ns:On("POI_UPDATED", MarkPins)
 	ns:On("POI_REMOVED", MarkPins)
+	ns:On("WAYPOINT_CHANGED", MarkPins)
 	ns:On("DATA_CHANGED", function()
 		if active then
 			UpdateTiles(true)
