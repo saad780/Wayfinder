@@ -95,6 +95,73 @@ function Navigation:ToggleWaypointAt(rec, catID)
 end
 
 ---------------------------------------------------------------------------
+-- Copying and sharing through ordinary chat map-pin links
+---------------------------------------------------------------------------
+local function LinkLabel(label)
+	-- Labels are display text, never hyperlink markup. Keep room for the payload
+	-- in a chat message, without cutting a UTF-8 character in half.
+	label = (label or "Waypoint"):gsub("|", ""):gsub("[%c%[%]]", " ")
+	local parts, length = {}, 0
+	for char in label:gmatch("[%z\1-\127\194-\244][\128-\191]*") do
+		if length + #char > 80 then break end
+		parts[#parts + 1], length = char, length + #char
+	end
+	return table.concat(parts)
+end
+
+function Navigation:GetWaypointLink(rec)
+	rec = rec or current
+	if not rec then return nil end
+	local mapID = rec.m
+	-- Detail-view points can lie outside the map it opened from. Use a parent
+	-- map that contains the point so the link has valid normalized coordinates.
+	for _ = 1, 12 do
+		local rect = ns.GetMapRect(mapID)
+		if rect and rect.cont == rec.c then
+			local x, y = ns.WorldToMapRect(rect, rec.x, rec.y)
+			if x >= 0 and x <= 1 and y >= 0 and y <= 1 then
+				return ("|cffffff00|Hworldmap:%d:%d:%d|h[Wayfinder: %s]|h|r"):format(
+					mapID, math.floor(x * 10000 + 0.5), math.floor(y * 10000 + 0.5), LinkLabel(rec.n))
+			end
+		end
+		local info = mapID and C_Map.GetMapInfo(mapID)
+		mapID = info and info.parentMapID
+		if not mapID or mapID == 0 then break end
+	end
+	return nil
+end
+
+function Navigation:CopyWaypoint(rec)
+	local link = self:GetWaypointLink(rec)
+	if not link then
+		ns.Print(current and "This waypoint can't be shared on a map." or "Set a waypoint first.")
+		return false
+	end
+	-- Insert into the current draft (and its selected channel/whisper), or open
+	-- chat with the link ready to send. The player chooses when to send it.
+	if not ChatFrameUtil.InsertLink(link) then
+		ChatFrameUtil.OpenChat(link)
+	end
+	return true
+end
+
+function Navigation:ReceiveWaypointLink(link, text, button)
+	-- Modified clicks retain the game's normal copy/dress-up behavior.
+	if button ~= "LeftButton" or IsModifiedClick() or type(link) ~= "string" or #link > 128 then
+		return false
+	end
+	local mapID, x, y = link:match("^worldmap:(%d+):(%d+):(%d+)$")
+	mapID, x, y = tonumber(mapID), tonumber(x), tonumber(y)
+	if not mapID or mapID < 1 or mapID > 2147483647 or x > 10000 or y > 10000 then
+		return false
+	end
+	if not C_Map.GetMapInfo(mapID) then return false end
+	local label = type(text) == "string" and text:match("|h%[Wayfinder: (.-)%]|h")
+	label = label and LinkLabel(label)
+	return self:SetWaypointOnMap(mapID, x / 10000, y / 10000, label ~= "" and label or nil)
+end
+
+---------------------------------------------------------------------------
 -- The arrow
 ---------------------------------------------------------------------------
 local arrow
@@ -349,6 +416,11 @@ function Navigation:OnLogin()
 	self.arrow = arrow
 	self:PlaceArrow()
 	self:RefreshArrow()
+	-- Keep Blizzard's map opening and other addons' handlers intact. Native
+	-- worldmap links survive chat validation and also work without Wayfinder.
+	hooksecurefunc("SetItemRef", function(link, text, button)
+		self:ReceiveWaypointLink(link, text, button)
+	end)
 	ns:On("SETTING_CHANGED", function(key)
 		if key == "arrowScale" then
 			arrow:SetScale(ns:GetSetting("arrowScale") or 1)

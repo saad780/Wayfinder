@@ -65,6 +65,33 @@ function ns.GetMapRect(mapID)
 	return rect or nil
 end
 
+-- The capitals, in case the client doesn't flag them as cities.
+local CAPITALS = {
+	[1453] = true, -- Stormwind City
+	[1454] = true, -- Orgrimmar
+	[1455] = true, -- Ironforge
+	[1456] = true, -- Thunder Bluff
+	[1457] = true, -- Darnassus
+	[1458] = true, -- Undercity
+}
+
+-- Whether a map is a city, or a part of one (a floor or district below it).
+function ns.IsCityMap(mapID)
+	local depth = 0
+	while mapID and depth < 6 do
+		if CAPITALS[mapID] or (C_Map.IsCityMap and C_Map.IsCityMap(mapID)) then
+			return true
+		end
+		local info = C_Map.GetMapInfo(mapID)
+		if not info or info.mapType <= Enum.UIMapType.Zone then
+			return false
+		end
+		mapID = info.parentMapID
+		depth = depth + 1
+	end
+	return false
+end
+
 function ns.MapToWorld(mapID, x, y)
 	local rect = ns.GetMapRect(mapID)
 	if not rect then

@@ -344,6 +344,8 @@ local function HandleSlash(input)
 		else
 			ns.Navigation:SetWaypointOnMap(mapID, x / 100, y / 100, label ~= "" and label or nil)
 		end
+	elseif command == "share" then
+		ns.Navigation:CopyWaypoint()
 	elseif command == "clear" then
 		ns.Navigation:ClearWaypoint()
 	elseif command == "arrow" then
@@ -366,6 +368,7 @@ local function HandleSlash(input)
 		print("   /wf reveal [hide|dim|show]  - how unexplored terrain is drawn")
 		print("   /wf stats  - what has been recorded")
 		print("   /wf way <x> <y> [label]  - waypoint in the zone you are in")
+		print("   /wf share  - copy the waypoint link to chat")
 		print("   /wf clear  - remove the waypoint")
 		print("   /wf arrow  - show or hide the waypoint arrow")
 		print("   /wf import  - re-read explored areas from the world map")
@@ -418,4 +421,3 @@ StaticPopupDialogs.WAYFINDER_RESET = {
 function Wayfinder_OnAddonCompartmentClick()
 	ns.Options:Open()
 end
-

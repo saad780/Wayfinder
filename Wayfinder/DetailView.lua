@@ -498,11 +498,15 @@ end
 local function PinOnMouseUp(pin, button)
 	if button == "LeftButton" then
 		local moved = DetailView:EndDrag()
-		if not moved and IsShiftKeyDown() and pin.rec and pin:IsMouseOver() then
-			if pin.rec.waypoint then
-				ns.Navigation:ClearWaypoint()
-			else
-				ns:RemoveLocation(pin.rec)
+		if not moved and pin.rec and pin:IsMouseOver() then
+			if IsShiftKeyDown() then
+				if pin.rec.waypoint then
+					ns.Navigation:ClearWaypoint()
+				else
+					ns:RemoveLocation(pin.rec)
+				end
+			elseif pin.rec.waypoint then
+				ns.Navigation:CopyWaypoint(pin.rec)
 			end
 		end
 	elseif button == "MiddleButton" and pin:IsMouseOver() then
@@ -906,15 +910,21 @@ end
 
 -- Opens the view over Blizzard's map showing exactly what the map shows now,
 -- then keeps zooming toward the cursor.
+-- Returns false plus a reason ("city" or "no terrain") when it can't open.
 function DetailView:EnterFromMap()
 	local mapID = WorldMapFrame:GetMapID()
+	-- City maps are drawn for the city itself; the minimap terrain under them
+	-- shows the ground outside (or above) the city, so there's no zooming in.
+	if ns.IsCityMap(mapID) then
+		return false, "city"
+	end
 	local rect = ns.GetMapRect(mapID)
 	if not rect or not ns.TileData[rect.cont] then
-		return false
+		return false, "no terrain"
 	end
 	local info = C_Map.GetMapInfo(mapID)
 	if not info or info.mapType < Enum.UIMapType.Continent then
-		return false
+		return false, "no terrain"
 	end
 	if not view then
 		CreateFrames()

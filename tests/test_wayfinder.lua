@@ -1004,6 +1004,191 @@ test("waypoint slash commands", function()
 	eq(ns:GetSetting("showArrow"), true, "arrow on")
 end)
 
+test("left-click copies the waypoint into chat without changing it", function()
+	setPlayer(1429, 0.42, 0.65)
+	Nav:SetWaypointOnMap(1429, 0.5, 0.7, "Meeting spot")
+	local wp = Nav:GetWaypoint()
+	WorldMapFrame.mapID = 1429
+	WorldMapFrame:RefreshProviders()
+	local pin
+	for _, candidate in ipairs(WorldMapFrame.pins) do
+		if candidate.rec.waypoint then pin = candidate end
+	end
+	ok(pin, "waypoint visible")
+	mock.chatActive, mock.chatText, mock.chatOpened = false, nil, 0
+	pin:OnMouseClickAction("LeftButton")
+	eq(mock.chatOpened, 1, "opened chat")
+	eq(mock.chatText, "|cffffff00|Hworldmap:1429:5000:7000|h[Wayfinder: Meeting spot]|h|r", "shareable link")
+	eq(Nav:GetWaypoint(), wp, "waypoint retained")
+	mock.chatText = "Meet me here: "
+	pin:OnMouseClickAction("LeftButton")
+	eq(mock.chatText, "Meet me here: " .. Nav:GetWaypointLink(), "existing draft retained")
+	eq(mock.chatOpened, 1, "active chat was not reopened")
+	pin:OnMouseEnter()
+	ok(table.concat(GameTooltip.lines, " "):find("Left%-click"), "tooltip explains copying")
+	mock.shift = true
+	pin:OnMouseClickAction("LeftButton")
+	mock.shift = false
+	eq(Nav:GetWaypoint(), nil, "shift-click still removes")
+	mock.chatActive, mock.chatText = false, nil
+end)
+
+test("shared chat links replace the recipient waypoint and appear on their map", function()
+	Nav:SetWaypointOnMap(1429, 0.50004, 0.70002, "Meeting spot")
+	local shared = Nav:GetWaypointLink()
+	local payload = shared:match("|H(.-)|h")
+	Nav:SetWaypointOnMap(1414, 0.5, 0.5, "Recipient's old waypoint")
+	-- Clicking chat runs Blizzard's handler as well as Wayfinder's secure hook.
+	SetItemRef(payload, shared, "LeftButton")
+	local wp = Nav:GetWaypoint()
+	eq(wp.n, "Meeting spot", "shared label retained")
+	eq(wp.m, 1429, "sender's map, not recipient's map")
+	local c, wx, wy = ns.MapToWorld(1429, 0.5, 0.7)
+	eq(wp.c, c, "continent")
+	near(wp.x, wx, 1e-6, "north")
+	near(wp.y, wy, 1e-6, "west")
+	eq(ns.db.waypoints[ns:GetCharacterKey()], wp, "saved")
+	ok(WayfinderArrow.shown, "arrow enabled")
+	eq(mock.itemRef.link, payload, "Blizzard handler preserved")
+	WorldMapFrame.mapID = 1429
+	WorldMapFrame:RefreshProviders()
+	local found
+	for _, pin in ipairs(WorldMapFrame.pins) do
+		if pin.rec == wp then found = pin end
+	end
+	ok(found, "received waypoint drawn")
+	-- Regular Blizzard links can also be used, with a location-based label.
+	SetItemRef("worldmap:1429:5000:7000", "|Hworldmap:1429:5000:7000|h[Map Pin Location]|h", "LeftButton")
+	eq(Nav:GetWaypoint().n, "Elwynn Forest 50.0, 70.0", "native link accepted")
+	Nav:ClearWaypoint()
+end)
+
+test("chat links ignore other links, malformed positions and modified clicks", function()
+	Nav:SetWaypointOnMap(1429, 0.3, 0.4, "Keep me")
+	local before = Nav:GetWaypoint()
+	for _, payload in ipairs({ "item:123", "worldmap:1429:10001:5000", "worldmap:1429:5000:10001",
+		"worldmap:1429:-1:5000", "worldmap:1429:bad:5000", "worldmap:1429:5000",
+		"worldmap:1429:5000:5000:extra", "worldmap:0:5000:5000", "worldmap:999999:5000:5000",
+		"worldmap:" .. string.rep("9", 200) .. ":5000:5000" }) do
+		SetItemRef(payload, "", "LeftButton")
+		eq(Nav:GetWaypoint(), before, "invalid link leaves waypoint: " .. payload)
+	end
+	for _, button in ipairs({ "RightButton", "MiddleButton" }) do
+		SetItemRef("worldmap:1429:5000:5000", "", button)
+		eq(Nav:GetWaypoint(), before, "only left-click imports")
+	end
+	mock.shift = true
+	SetItemRef("worldmap:1429:5000:5000", "", "LeftButton")
+	mock.shift = false
+	eq(Nav:GetWaypoint(), before, "shift-click does not replace")
+	mock.modifiedClick = true
+	SetItemRef("worldmap:1429:5000:5000", "", "LeftButton")
+	mock.modifiedClick = false
+	eq(Nav:GetWaypoint(), before, "other modified clicks do not replace")
+	SetItemRef("worldmap:947:5000:5000", "", "LeftButton")
+	eq(Nav:GetWaypoint(), before, "map without world geometry does not replace")
+	Nav:ClearWaypoint()
+end)
+
+test("sharing uses a containing parent map and safe bounded UTF-8 labels", function()
+	local c, wx, wy = ns.MapToWorld(1415, 0.6, 0.3)
+	-- Deliberately use a hint zone that does not contain the detail-view point.
+	local link = Nav:GetWaypointLink({ c = c, x = wx, y = wy, m = 1429, n = "Outside Elwynn" })
+	ok(link and link:find("|Hworldmap:1415:6000:3000|h", 1, true), "uses containing continent")
+	local rec = { c = c, x = wx, y = wy, m = 1415, n = "Bad|Hitem:1|h[markup]\n" }
+	link = Nav:GetWaypointLink(rec)
+	local display = link:match("|h%[(.-)%]|h")
+	ok(not display:find("|", 1, true) and not display:find("\n", 1, true), "markup and controls removed")
+	rec.n = "A" .. string.rep("\195\169", 100)
+	link = Nav:GetWaypointLink(rec)
+	display = link:match("|h%[Wayfinder: (.-)%]|h")
+	eq(display, "A" .. string.rep("\195\169", 39), "truncation keeps complete UTF-8 characters")
+	ok(#link < 255, "fits chat")
+	eq(Nav:GetWaypointLink({ c = 99999, x = 0, y = 0, m = 1429 }), nil, "unshareable point rejected")
+end)
+
+test("detail-view waypoint left-click copies, while dragging only pans", function()
+	WorldMapFrame.mapID = 1429
+	local container = WorldMapFrame.ScrollContainer
+	container.atMax = true
+	mock.time = mock.time + 1
+	container.scripts.OnMouseWheel(container, 1)
+	ok(ns.DetailView:IsActive(), "detail open")
+	ns:SetSetting("clearOnArrival", false)
+	setPlayer(1429, 0.55, 0.75)
+	WayfinderLocateButton.scripts.OnClick(WayfinderLocateButton)
+	Nav:SetWaypointOnMap(1429, 0.55, 0.75, "Copy in detail")
+	mock.Advance(0.1)
+	local pin
+	for _, frame in ipairs(mock.frames) do
+		if frame.rec == Nav:GetWaypoint() and frame.scripts.OnMouseDown and frame:IsShown() then pin = frame end
+	end
+	ok(pin, "detail waypoint pin")
+	mock.mouseOver, mock.chatActive, mock.chatText = pin, false, nil
+	pin.scripts.OnMouseDown(pin, "LeftButton")
+	pin.scripts.OnMouseUp(pin, "LeftButton")
+	eq(mock.chatText, Nav:GetWaypointLink(), "click copies")
+	mock.chatText = "Draft"
+	mock.cursorX, mock.cursorY, mock.mouseDown = 500, 334, "LeftButton"
+	pin.scripts.OnMouseDown(pin, "LeftButton")
+	mock.cursorX = 520
+	mock.Advance(0.05)
+	pin.scripts.OnMouseUp(pin, "LeftButton")
+	eq(mock.chatText, "Draft", "drag does not copy")
+	mock.cursorX, mock.cursorY, mock.mouseDown, mock.mouseOver = nil, nil, nil, nil
+	mock.chatActive, mock.chatText = false, nil
+	ns.DetailView:Exit()
+	Nav:ClearWaypoint()
+	ns:SetSetting("clearOnArrival", true)
+end)
+
+test("share slash command prepares chat and explains a missing waypoint", function()
+	Nav:ClearWaypoint()
+	mock.printed, mock.chatActive, mock.chatText = "", false, nil
+	SlashCmdList.WAYFINDER("share")
+	ok(mock.printed:find("Set a waypoint first", 1, true), "missing waypoint explained")
+	eq(mock.chatText, nil, "no empty chat opened")
+	Nav:SetWaypointOnMap(1429, 0.3, 0.4, "Meeting spot")
+	SlashCmdList.WAYFINDER("share")
+	eq(mock.chatText, Nav:GetWaypointLink(), "share command copies")
+	Nav:ClearWaypoint()
+	mock.chatActive, mock.chatText = false, nil
+end)
+
+test("no detail view on city maps", function()
+	local container = WorldMapFrame.ScrollContainer
+	container.atMax = true
+	local function TryZoom(mapID)
+		WorldMapFrame.mapID = mapID
+		mock.time = mock.time + 1
+		container.scripts.OnMouseWheel(container, 1)
+		local opened = ns.DetailView:IsActive()
+		if opened then ns.DetailView:Exit() end
+		return opened
+	end
+	ok(not TryZoom(1453), "not on Stormwind City")
+	-- a district map below a city, and a town the client itself flags as a city
+	mock.maps[1990] = { name = "Stormwind Keep", mapType = 5, parent = 1453 }
+	mock.maps[1991] = { name = "Test Town", mapType = 3, parent = 1415, isCity = true }
+	ok(not TryZoom(1990), "not on a map inside a city")
+	ok(not TryZoom(1991), "not on a map the client calls a city")
+	mock.maps[1990], mock.maps[1991] = nil, nil
+	ok(TryZoom(1429), "zones still zoom in")
+
+	-- the map button's "Open detail view" explains why
+	WorldMapFrame.mapID = 1453
+	WayfinderMapButton.scripts.OnClick(WayfinderMapButton)
+	local open
+	for _, item in ipairs(mock.lastMenu.items) do
+		if item.text == "Open detail view" then open = item.a end
+	end
+	mock.printed = ""
+	open()
+	ok(not ns.DetailView:IsActive(), "menu doesn't open it either")
+	ok(mock.printed:find("city maps"), "says why")
+	WorldMapFrame.mapID = 1429
+end)
+
 ---------------------------------------------------------------------------
 local passed, failed = 0, 0
 for _, t in ipairs(tests) do

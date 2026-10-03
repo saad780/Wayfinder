@@ -46,6 +46,7 @@ function canaccessvalue(v) return not issecretvalue(v) end
 mock.SECRET = { __secret = true }
 function InCombatLockdown() return mock.inCombat or false end
 function IsShiftKeyDown() return mock.shift or false end
+function IsModifiedClick() return mock.shift or mock.modifiedClick or false end
 function IsMouseButtonDown(button) return mock.mouseDown == button end
 function GetCursorPosition() return mock.cursorX or 500, mock.cursorY or 350 end
 function GetPlayerFacing() return mock.facing or 0.5 end
@@ -82,6 +83,19 @@ LOCALIZED_CLASS_NAMES_FEMALE = LOCALIZED_CLASS_NAMES_MALE
 SlashCmdList = {}
 StaticPopupDialogs = {}
 function StaticPopup_Show(which, a, b, data) mock.popup = { which = which, data = data } end
+ChatFrameUtil = {}
+function ChatFrameUtil.InsertLink(link)
+	if not mock.chatActive then return false end
+	mock.chatText = (mock.chatText or "") .. link
+	return true
+end
+function ChatFrameUtil.OpenChat(text)
+	mock.chatActive, mock.chatText = true, text
+	mock.chatOpened = (mock.chatOpened or 0) + 1
+end
+function SetItemRef(link, text, button)
+	mock.itemRef = { link = link, text = text, button = button }
+end
 function print(...) mock.printed = (mock.printed or "") .. table.concat({ ... }, " ") .. "\n" end
 
 function Mixin(object, ...)
@@ -312,6 +326,7 @@ function C_Map.GetMapChildrenInfo(root, mapType, allDescendants)
 	return out
 end
 function C_Map.GetFallbackWorldMapID() return 947 end
+function C_Map.IsCityMap(id) return mock.maps[id] ~= nil and mock.maps[id].isCity == true end
 mock.playerMap, mock.playerX, mock.playerY = 1429, 0.42, 0.65
 function C_Map.GetBestMapForUnit() return mock.playerMap end
 function C_Map.GetPlayerMapPosition(mapID, unit)

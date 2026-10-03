@@ -185,8 +185,10 @@ local function BuildMenu(_, root)
 	end
 	root:CreateDivider()
 	root:CreateButton("Open detail view", function()
-		if not ns.DetailView:EnterFromMap() then
-			ns.Print("No minimap terrain for this map.")
+		local opened, reason = ns.DetailView:EnterFromMap()
+		if not opened then
+			ns.Print(reason == "city" and "The detail view isn't available on city maps."
+				or "No minimap terrain for this map.")
 		end
 	end)
 	root:CreateButton("Settings...", function()

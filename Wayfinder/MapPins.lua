@@ -20,6 +20,7 @@ function Tooltip:Show(owner, rec, catID)
 			GameTooltip:AddLine(rec.where, 0.8, 0.8, 0.8)
 		end
 		GameTooltip:AddLine("Waypoint", 0.6, 0.85, 1)
+		GameTooltip:AddLine("Left-click to copy a link to chat", 0.5, 0.5, 0.5)
 		GameTooltip:AddLine("Middle-click to remove", 0.5, 0.5, 0.5)
 		GameTooltip:Show()
 		return
@@ -152,6 +153,8 @@ function WayfinderMapPinMixin:OnMouseClickAction(button)
 		else
 			ns:RemoveLocation(self.rec)
 		end
+	elseif button == "LeftButton" and self.rec.waypoint then
+		ns.Navigation:CopyWaypoint(self.rec)
 	end
 end
 
