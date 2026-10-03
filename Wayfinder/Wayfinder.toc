@@ -1,0 +1,27 @@
+## Interface: 16001
+## Title: Wayfinder
+## Notes: A world map that keeps zooming into minimap detail, fills in as you explore, and remembers every vendor, mailbox, trainer, flight master and more. Type /wf for options.
+## Author: Saad
+## Version: 1.2.0
+## Category: Map & Minimap
+## SavedVariables: WayfinderDB
+## IconTexture: Interface\Icons\INV_Misc_Map_01
+## AddonCompartmentFunc: Wayfinder_OnAddonCompartmentClick
+## X-License: GPL-3.0-or-later
+
+Core.lua
+Geometry.lua
+Categories.lua
+
+Data\Tiles.lua
+Data\Seed.lua
+Data\Transports.lua
+
+Database.lua
+Exploration.lua
+Seeds.lua
+Recorder.lua
+MapPins.lua
+Pins.xml
+DetailView.lua
+Options.lua
