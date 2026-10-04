@@ -362,14 +362,6 @@ end
 ---------------------------------------------------------------------------
 local underlay = {}
 
-local function NextPow2(n)
-	local p = 16
-	while p < n do
-		p = p * 2
-	end
-	return p
-end
-
 local function SetUnderlay(mapID)
 	if mapID == underlayMapID then
 		return
@@ -409,43 +401,17 @@ local function SetUnderlay(mapID)
 		end
 	end
 
-	-- Discovered-area overlays. The tiling below is adapted from Blizzard's
-	-- MapExplorationPinMixin:RefreshOverlays (Blizzard_SharedMapDataProviders).
 	local overlays = C_MapExplorationInfo and C_MapExplorationInfo.GetExploredMapTextures(mapID)
 	for _, info in ipairs(overlays or {}) do
-		if not info.isShownByMouseOver then
-			local wide = ceil(info.textureWidth / tw)
-			local tall = ceil(info.textureHeight / th)
-			local subLevel = info.isDrawOnTopLayer and 2 or 1
-			for j = 1, tall do
-				local ph, fh = th, th
-				if j == tall then
-					ph = info.textureHeight % th
-					if ph == 0 then ph = th end
-					fh = NextPow2(ph)
-				end
-				for k = 1, wide do
-					local pw, fw = tw, tw
-					if k == wide then
-						pw = info.textureWidth % tw
-						if pw == 0 then pw = tw end
-						fw = NextPow2(pw)
-					end
-					local fileID = info.fileDataIDs[(j - 1) * wide + k]
-					if fileID then
-						local tex = AcquireTexture("BACKGROUND", subLevel)
-						tex:SetTexture(fileID, nil, nil, "TRILINEAR")
-						tex:SetTexCoord(0, pw / fw, 0, ph / fh)
-						tex:SetSize(pw * kx, ph * ky)
-						tex:SetPoint("TOPLEFT", plane, "TOPLEFT",
-							left + (info.offsetX + tw * (k - 1)) * kx,
-							-(top + (info.offsetY + th * (j - 1)) * ky))
-						tex:SetVertexColor(UNDERLAY_SHADE, UNDERLAY_SHADE, UNDERLAY_SHADE)
-						underlay[#underlay + 1] = tex
-					end
-				end
-			end
-		end
+		ns.LayoutExplorationOverlay(info, tw, th, function(fileID, x, y, width, height, u, v, level)
+			local tex = AcquireTexture("BACKGROUND", level)
+			tex:SetTexture(fileID, nil, nil, "TRILINEAR")
+			tex:SetTexCoord(0, u, 0, v)
+			tex:SetSize(width * kx, height * ky)
+			tex:SetPoint("TOPLEFT", plane, "TOPLEFT", left + x * kx, -(top + y * ky))
+			tex:SetVertexColor(UNDERLAY_SHADE, UNDERLAY_SHADE, UNDERLAY_SHADE)
+			underlay[#underlay + 1] = tex
+		end)
 	end
 	pinsDirty = true -- live quest markers belong to the underlay's zone
 end

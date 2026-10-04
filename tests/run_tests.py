@@ -8,6 +8,7 @@ ADDON_LOADED / PLAYER_LOGIN and driven through tests/test_wayfinder.lua.
 """
 
 import os
+import subprocess
 import sys
 import xml.etree.ElementTree as ET
 
@@ -57,7 +58,9 @@ def main():
 
     with open(os.path.join(HERE, "test_wayfinder.lua"), encoding="utf-8") as fh:
         failed = lua.execute(fh.read())
-    sys.exit(1 if failed else 0)
+    if failed:
+        sys.exit(1)
+    sys.exit(subprocess.run([sys.executable, os.path.join(HERE, "test_sources.py")]).returncode)
 
 
 if __name__ == "__main__":

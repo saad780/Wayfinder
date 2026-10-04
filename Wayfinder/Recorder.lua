@@ -147,6 +147,7 @@ function Recorder:RecordMailbox()
 	end
 	ns.Database:RecordObject({
 		cat = "mailbox",
+		source = "mailbox",
 		name = MAILBOX or "Mailbox",
 		cont = pos.cont,
 		wx = pos.wx,
@@ -469,7 +470,7 @@ function Recorder:OnGossipPOI()
 	local name = Readable(info.name) and info.name or nil
 	if catID == "mailbox" then
 		ns.Database:RecordObject({ cat = "mailbox", name = MAILBOX or "Mailbox", cont = cont, wx = wx, wy = wy,
-			mapID = mapID, accuracy = 8 })
+			mapID = mapID, accuracy = 8, source = "guard" })
 		return
 	end
 	local rec = ns.Database:RecordNPC({
@@ -504,19 +505,24 @@ function Recorder:ImportKnownFlightPaths()
 		local ok, nodes = pcall(C_TaxiMap.GetTaxiNodesForMap, mapInfo.mapID)
 		if ok and type(nodes) == "table" then
 			for _, node in ipairs(nodes) do
-				if not node.isUndiscovered and node.position then
+				if node.position then
 					local x, y = node.position:GetXY()
 					local cont, wx, wy = ns.MapToWorld(mapInfo.mapID, x, y)
 					if cont then
-						ns.Database:RecordTaxi({
-							nodeID = node.nodeID,
-							name = node.name,
-							faction = FLIGHT_FACTION[node.faction] or 0,
-							cont = cont,
-							wx = wx,
-							wy = wy,
-							mapID = mapInfo.mapID,
-						})
+						ns.Observations:Capture({ cats = { flight = true }, nodeID = node.nodeID,
+							name = node.name, faction = FLIGHT_FACTION[node.faction] or 0,
+							cont = cont, wx = wx, wy = wy, mapID = mapInfo.mapID, accuracy = 0 }, "taxi_api")
+						if not node.isUndiscovered then
+							ns.Database:RecordTaxi({
+								nodeID = node.nodeID,
+								name = node.name,
+								faction = FLIGHT_FACTION[node.faction] or 0,
+								cont = cont,
+								wx = wx,
+								wy = wy,
+								mapID = mapInfo.mapID,
+							})
+						end
 					end
 				end
 			end

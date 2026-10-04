@@ -21,6 +21,7 @@ function strsplit(sep, s)
 end
 function GetTime() return mock.time end
 function time() return 1700000000 end
+function GetBuildInfo() return "1.60.1", "70170", "Oct 1 2026", 16001 end
 function debugprofilestop() return os.clock() * 1000 end
 function geterrorhandler() return function(err) table.insert(mock.errors, err) error(err, 0) end end
 function securecallfunction(fn, ...)
@@ -301,16 +302,16 @@ function mock.Advance(seconds, step)
 end
 
 ---------------------------------------------------------------------------
--- Maps: a tiny Azeroth with real Forever map IDs and roughly real rectangles
+-- Maps: synthetic geometry with real map IDs; deliberately not game rectangles.
 ---------------------------------------------------------------------------
 -- rect: cont, top (wx at y=0), left (wy at x=0), width (yards, x), height (yards, y)
--- Values are Classic's real zone rectangles, taken from HereBeDragons' map data.
+-- Round, invented dimensions preserve continent/zone/city nesting for API tests.
 mock.maps = {
 	[947] = { name = "Azeroth", mapType = 0, parent = 0 },
-	[1415] = { name = "Eastern Kingdoms", mapType = 2, parent = 947, cont = 0, top = 11176.34, left = 18171.97, width = 40741.18, height = 27149.69 },
-	[1429] = { name = "Elwynn Forest", mapType = 3, parent = 1415, cont = 0, top = -7939.58, left = 1535.42, width = 3470.83, height = 2314.58 },
-	[1453] = { name = "Stormwind City", mapType = 3, parent = 1415, cont = 0, top = -7995.83, left = 1722.92, width = 1737.50, height = 1158.33 },
-	[1414] = { name = "Kalimdor", mapType = 2, parent = 947, cont = 1, top = 12799.9, left = 17066.6, width = 36799.81, height = 24533.2 },
+	[1415] = { name = "Eastern Kingdoms", mapType = 2, parent = 947, cont = 0, top = 12000, left = 18000, width = 42000, height = 30000 },
+	[1429] = { name = "Elwynn Forest", mapType = 3, parent = 1415, cont = 0, top = -8000, left = 1600, width = 3600, height = 2400 },
+	[1453] = { name = "Stormwind City", mapType = 3, parent = 1415, cont = 0, top = -8050, left = 1800, width = 1800, height = 1200 },
+	[1414] = { name = "Kalimdor", mapType = 2, parent = 947, cont = 1, top = 14000, left = 18000, width = 40000, height = 28000 },
 }
 local function MapRect(id) local m = mock.maps[id]; return m and m.cont and m end
 

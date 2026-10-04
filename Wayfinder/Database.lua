@@ -155,6 +155,7 @@ function Database:RecordNPC(info)
 	if not (info.cont and info.wx and info.wy) then
 		return nil
 	end
+	if info.source then ns.Observations:Capture(info, info.source) end
 	local rec
 	if info.npcID then
 		rec = self:FindNearest(info.cont, info.wx, info.wy, SAME_SPAWN_YARDS + (info.accuracy or 0), function(r)
@@ -219,6 +220,7 @@ function Database:RecordObject(info)
 	if not (info.cont and info.wx and info.wy and info.cat) then
 		return nil
 	end
+	if info.source then ns.Observations:Capture(info, info.source) end
 	local rec = self:FindNearest(info.cont, info.wx, info.wy, SAME_OBJECT_YARDS, function(r)
 		return r.kind == "obj" and r.cats[info.cat]
 	end)

@@ -164,6 +164,7 @@ local function InitializeDatabase()
 	db.imported = db.imported or {}
 	db.waypoints = db.waypoints or {}
 	db.questAvailability = db.questAvailability or {}
+	db.observations = db.observations or {}
 	-- 1.0 had an on/off "show unexplored terrain" setting.
 	if db.settings.revealAll ~= nil then
 		if db.settings.revealAll == true and db.settings.unexploredTerrain == nil then
@@ -345,6 +346,13 @@ local function HandleSlash(input)
 		else
 			ns.Navigation:SetWaypointOnMap(mapID, x / 100, y / 100, label ~= "" and label or nil)
 		end
+	elseif command == "survey" then
+		local subject, args = rest:match("^(%S+)%s*(.*)$")
+		if subject == "transport" then
+			ns.Observations:SurveyTransport(args)
+		else
+			ns.Print(("%d independent observations collected. /wf survey transport records a dock or portal."):format(CountTable(ns.db.observations)))
+		end
 	elseif command == "share" then
 		ns.Navigation:CopyWaypoint()
 	elseif command == "add" then
@@ -372,6 +380,7 @@ local function HandleSlash(input)
 		print("   /wf show|hide <category|all>")
 		print("   /wf reveal [hide|dim|show]  - how unexplored terrain is drawn")
 		print("   /wf stats  - what has been recorded")
+		print("   /wf survey [transport ...]  - collect independent locations")
 		print("   /wf way <x> <y> [label]  - waypoint in the zone you are in")
 		print("   /wf share  - copy the waypoint link to chat")
 		print("   /wf add <shared waypoint>  - add a pasted waypoint")
@@ -407,6 +416,7 @@ StaticPopupDialogs.WAYFINDER_RESET = {
 	OnAccept = function(_, what)
 		if what == "pois" or what == "all" then
 			wipe(ns.db.pois)
+			wipe(ns.db.observations)
 			wipe(ns.db.hidden)
 			ns.QuestAvailability:Reset()
 			ns.Database:Rebuild()

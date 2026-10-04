@@ -1668,6 +1668,139 @@ test("no detail view on city maps", function()
 end)
 
 ---------------------------------------------------------------------------
+test("independent measurements preserve source, precision and geometry without backfilling POIs", function()
+	local saved = ns.db.observations
+	ns.db.observations = {}
+	local c, x, y = ns.MapToWorld(1429, 0.4, 0.6)
+	ns.Database:RecordNPC({ npcID = 998877, name = "Measured Banker", cats = { bank = true },
+		cont = c, wx = x, wy = y, mapID = 1429, accuracy = 4 })
+	eq(count(ns.db.observations), 0, "unsourced legacy record is not promoted")
+	ns.Database:RecordNPC({ npcID = 998877, name = "Measured Banker", cats = { bank = true },
+		cont = c, wx = x, wy = y, mapID = 1429, accuracy = 4, source = "talk" })
+	eq(count(ns.db.observations), 1, "raw measurement captured")
+	local _, o = next(ns.db.observations)
+	eq(o.method, "talk", "client interaction")
+	eq(o.build, "70170", "build")
+	eq(o.accuracy, 4, "precision")
+	near(o.x, 40, 1e-9, "map x percent")
+	eq(o.rect.width, mock.maps[1429].width, "client geometry")
+	ns.Observations:Capture({ cats = { bank = true }, mapID = 1429, cont = c,
+		wx = mock.SECRET, wy = y, accuracy = 4 }, "talk")
+	eq(count(ns.db.observations), 1, "restricted values are ignored")
+	ns.db.observations = saved
+end)
+
+test("undiscovered flight measurements do not become known flight records", function()
+	local saved, observations = C_TaxiMap.GetTaxiNodesForMap, ns.db.observations
+	ns.db.observations = {}
+	C_TaxiMap.GetTaxiNodesForMap = function(map)
+		if map == 1429 then return { { nodeID = 9988, name = "Unlearned Flight", faction = 2,
+			position = CreateVector2D(0.2, 0.3), isUndiscovered = true } } end
+		return {}
+	end
+	ns.Recorder:ImportKnownFlightPaths()
+	eq(count(ns.db.observations), 1, "undiscovered client node collected")
+	eq(ns.db.pois.t9988, nil, "not marked learned")
+	local _, o = next(ns.db.observations)
+	eq(o.method, "taxi_api", "source")
+	eq(o.accuracy, 0, "client-provided coordinates")
+	C_TaxiMap.GetTaxiNodesForMap, ns.db.observations = saved, observations
+end)
+
+test("unavailable flight APIs do not change saved data", function()
+	local saved = C_TaxiMap
+	local records, observations = count(ns.db.pois), count(ns.db.observations)
+	C_TaxiMap = nil
+	ns.Recorder:ImportKnownFlightPaths()
+	C_TaxiMap = {}
+	ns.Recorder:ImportKnownFlightPaths()
+	C_TaxiMap = saved
+	eq(count(ns.db.pois), records, "records retained")
+	eq(count(ns.db.observations), observations, "observations retained")
+end)
+
+test("verified seed replacements migrate hidden markers and fall back when geometry is unavailable", function()
+	local original, independent, hidden = ns.SeedData, ns.IndependentSeedData, ns.db.hidden
+	local transports, independentTransports = ns.TransportData, ns.IndependentTransportData
+	ns.SeedData = { { cat = "bank", name = "Banker", pts = { 1429, 10, 10, 1 } } }
+	ns.TransportData, ns.IndependentTransportData = {}, {}
+	local oldKey = "s:bank:1429:10.0:10.0"
+	ns.db.hidden = { [oldKey] = true, ["unmatched"] = true }
+	ns.IndependentSeedData = { { cat = "bank", name = "Independent Banker", pts = { 1429, 10.1, 10, 1 },
+		source = "client:70170", accuracy = 4, replaces = { oldKey } } }
+	ns.Seeds:Build()
+	local c, wx, wy = ns.MapToWorld(1429, 0.101, 0.1)
+	ns.Exploration:MarkCircle(c, wx, wy, 40)
+	local found = 0
+	ns.Seeds:Query(c, wx - 30, wx + 30, wy - 30, wy + 30, function() found = found + 1 end)
+	eq(found, 0, "replacement inherits hidden state")
+	ok(ns.db.hidden["s:bank:1429:10.1:10.0"], "new key is hidden")
+	ok(ns.db.hidden.unmatched, "unmatched keys retained")
+	ns.db.hidden = {}
+	ns.Seeds:Build()
+	ns.Seeds:Query(c, wx - 30, wx + 30, wy - 30, wy + 30, function(s)
+		found = found + 1
+		eq(s.source, "client:70170", "replacement source")
+	end)
+	eq(found, 1, "one replacement, no legacy duplicate")
+	ns.IndependentSeedData[1].pts[1] = 999999
+	ns.Seeds:Build()
+	found = 0
+	ns.Seeds:Query(c, wx - 30, wx + 30, wy - 30, wy + 30, function(s)
+		found = found + 1
+		eq(s.n, "Banker", "original retained on failed replacement")
+	end)
+	eq(found, 1, "fallback coverage")
+	ns.SeedData, ns.IndependentSeedData, ns.db.hidden = original, independent, hidden
+	ns.TransportData, ns.IndependentTransportData = transports, independentTransports
+	ns.Seeds:Build()
+end)
+
+test("exploration overlay clipping handles edge tiles, powers of two, holes and layers", function()
+	local tiles = {}
+	local function collect(...) tiles[#tiles + 1] = { ... } end
+	ns.LayoutExplorationOverlay({ textureWidth = 300, textureHeight = 270, offsetX = 17, offsetY = 23,
+		fileDataIDs = { 11, 12, 13, 14 }, isDrawOnTopLayer = true }, 256, 256, collect)
+	eq(#tiles, 4, "four clipped tiles")
+	eq(tiles[4][2], 273, "right tile x")
+	eq(tiles[4][3], 279, "bottom tile y")
+	eq(tiles[4][4], 44, "edge width")
+	eq(tiles[4][5], 14, "edge height")
+	near(tiles[4][6], 44 / 64, 1e-9, "padded u crop")
+	near(tiles[4][7], 14 / 16, 1e-9, "padded v crop")
+	eq(tiles[4][8], 2, "top overlay layer")
+	for _, size in ipairs({ 16, 32, 64, 128, 256, 512 }) do
+		tiles = {}
+		ns.LayoutExplorationOverlay({ textureWidth = size, textureHeight = size, offsetX = 0, offsetY = 0,
+			fileDataIDs = { 1 } }, size, size, collect)
+		eq(tiles[1][6], 1, "power of two not padded twice")
+		eq(tiles[1][7], 1, "height not padded twice")
+	end
+	tiles = {}
+	ns.LayoutExplorationOverlay({ textureWidth = 512, textureHeight = 256, offsetX = 0, offsetY = 0,
+		fileDataIDs = { [2] = 2 } }, 256, 256, collect)
+	eq(#tiles, 1, "missing file skipped")
+	eq(tiles[1][2], 256, "hole keeps subsequent position")
+	tiles = {}
+	ns.LayoutExplorationOverlay({ textureWidth = 256, textureHeight = 256, isShownByMouseOver = true }, 256, 256, collect)
+	eq(#tiles, 0, "mouse-over overlay not revealed")
+end)
+
+test("transport surveys use the player position and reject incomplete routes", function()
+	local saved = ns.db.observations
+	ns.db.observations = {}
+	setPlayer(1429, 0.25, 0.5)
+	SlashCmdList.WAYFINDER("survey transport boat 0 Boat to Test Harbor")
+	eq(count(ns.db.observations), 1, "route collected")
+	local _, o = next(ns.db.observations)
+	eq(o.kind, "boat", "kind")
+	eq(o.faction, 0, "neutral")
+	eq(o.name, "Boat to Test Harbor", "destination label")
+	SlashCmdList.WAYFINDER("survey transport boat")
+	eq(count(ns.db.observations), 1, "incomplete route ignored")
+	ns.db.observations = saved
+end)
+
 local passed, failed = 0, 0
 for _, t in ipairs(tests) do
 	local success, err = pcall(t.fn)

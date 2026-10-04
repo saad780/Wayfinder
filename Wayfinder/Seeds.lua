@@ -90,22 +90,56 @@ local function MakeSeed(catID, mapID, x, y, faction, name, extra)
 		end
 	end
 	Add(seed)
+	return seed
 end
 
 function Seeds:Build()
 	wipe(buckets)
 	wipe(all)
+	local replacements, candidates, used = {}, {}, {}
+	local function Candidate(cat, map, x, y, faction, name, extra, aliases)
+		local candidate = { cat, map, x, y, faction, name, extra, aliases }
+		candidates[#candidates + 1] = candidate
+		for _, key in ipairs(aliases or {}) do replacements[key] = candidate end
+	end
+	for _, e in ipairs(ns.IndependentSeedData or {}) do
+		for i = 1, #e.pts, 4 do
+			Candidate(e.cat, e.pts[i], e.pts[i + 1], e.pts[i + 2], e.pts[i + 3], e.name,
+				{ cls = e.class, builtin = true, a = e.accuracy, source = e.source }, e.replaces)
+		end
+	end
+	for _, t in ipairs(ns.IndependentTransportData or {}) do
+		Candidate("transport", t[2], t[3], t[4], t[6], t[5],
+			{ sub = t[1], a = t.accuracy, source = t.source }, t.replaces)
+	end
+	local function Install(candidate)
+		if used[candidate] then return true end
+		local seed = MakeSeed(unpack(candidate, 1, 7))
+		if not seed then return false end
+		used[candidate] = true
+		for _, key in ipairs(candidate[8] or {}) do
+			if ns.db.hidden[key] then ns.db.hidden[seed.k] = true end
+		end
+		return true
+	end
+	local function Legacy(cat, map, x, y, faction, name, extra)
+		local candidate = replacements[("s:%s:%d:%.1f:%.1f"):format(cat, map, x, y)]
+		if not candidate or not Install(candidate) then
+			MakeSeed(cat, map, x, y, faction, name, extra)
+		end
+	end
 	for _, entry in ipairs(ns.SeedData or {}) do
 		local pts, names = entry.pts, entry.names
 		for i = 1, #pts, 4 do
 			local name = names and names[(i - 1) / 4 + 1] or entry.name
-			MakeSeed(entry.cat, pts[i], pts[i + 1], pts[i + 2], pts[i + 3], name,
+			Legacy(entry.cat, pts[i], pts[i + 1], pts[i + 2], pts[i + 3], name,
 				{ cls = entry.class, builtin = true, s = names and entry.name or nil })
 		end
 	end
 	for _, t in ipairs(ns.TransportData or {}) do
-		MakeSeed("transport", t[2], t[3], t[4], t[6], t[5], { sub = t[1] })
+		Legacy("transport", t[2], t[3], t[4], t[6], t[5], { sub = t[1] })
 	end
+	for _, candidate in ipairs(candidates) do Install(candidate) end
 	ns.Debug(#all, "built-in locations loaded")
 end
 

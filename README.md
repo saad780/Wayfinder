@@ -64,21 +64,24 @@ python tools/build_tiles.py 1.60.2.xxxxx
 
 The script downloads the new build's WDT files from wago.tools. The other tools:
 
-- `tools/build_seed.py`: rebuilds the built-in town services from a Carbonite checkout.
+- `tools/build_seed.py`: builds reviewed independent replacements and a report of remaining imported locations.
+- `tools/export_observations.py`: exports new Wayfinder measurements from SavedVariables for review.
 - `tools/make_icons.py`: redraws the addon's own icons.
 - `tools/make_fog.py`: redraws the 16 soft fog-edge pieces.
 - `python tests/run_tests.py`: runs the test suite (needs `pip install lupa`).
 
 ## Acknowledgements
 
-Wayfinder includes material copied from these projects:
+Wayfinder is migrating to independently collected data. All existing built-in locations remain available until their replacements are verified; see [the collection workflow](data/README.md) and [remaining coverage](data/coverage.json).
+
+Wayfinder still includes material copied from these projects:
 
 - **[Carbonite All-in-One](https://github.com/IrcDirk/Carbonite-All-in-One-Retail-Classic)** (GPL-3.0):
-  - The built-in town service locations in `Data/Seed.lua`, converted from its Forever guide data by `tools/build_seed.py`.
+  - The legacy built-in town service locations in `Data/Seed.lua`, originally converted from its Forever guide data by the generator shipped with Wayfinder 1.3.3.
   - Most boat, zeppelin, tram and portal positions in `Data/Transports.lua`, from its zone connections.
 - **Leatrix Maps**: the Booty Bay–Ratchet and Feathermoon dock positions in `Data/Transports.lua`.
-- **Blizzard's default UI**: the detail view tiles a zone's discovered-area overlays with code adapted from `MapExplorationPinMixin:RefreshOverlays`.
-- **HereBeDragons**: the Classic zone rectangles used as test data in `tests/wowmock.lua`.
+
+Map geometry and explored-area textures come from client APIs. Overlay placement uses Wayfinder's own rectangle-clipping implementation; test map rectangles are synthetic. The minimap tile lookup comes from client WDT files, retrieved through wago.tools. Blizzard's game assets are not relicensed by Wayfinder.
 
 ## License
 
