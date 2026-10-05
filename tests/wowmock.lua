@@ -189,6 +189,10 @@ function Region:GetWidth() return (self:GetSize()) end
 function Region:GetHeight() return select(2, self:GetSize()) end
 function Region:SetAllPoints(other) self.allPoints = other or self.parent or true end
 function Region:SetPoint(point, ...) self.points[point] = { ... } end
+function Region:GetPoint()
+	local point, args = next(self.points)
+	if point then return point, unpack(args) end
+end
 function Region:ClearAllPoints() self.points = {} end
 function Region:Show() self.shown = true end
 function Region:Hide() self.shown = false end

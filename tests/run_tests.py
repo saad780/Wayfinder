@@ -60,7 +60,10 @@ def main():
         failed = lua.execute(fh.read())
     if failed:
         sys.exit(1)
-    sys.exit(subprocess.run([sys.executable, os.path.join(HERE, "test_sources.py")]).returncode)
+    for suite in ("test_sources.py", "test_arrow_art.py"):
+        result = subprocess.run([sys.executable, os.path.join(HERE, suite)])
+        if result.returncode:
+            sys.exit(result.returncode)
 
 
 if __name__ == "__main__":

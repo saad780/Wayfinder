@@ -1118,15 +1118,16 @@ test("the arrow points at the waypoint relative to where you face", function()
 	WaypointFromPlayer(100, 0) -- 100 yards north
 	mock.Advance(0.1)
 	local arrow = WayfinderArrow
-	near(arrow.head.rotation, 0, 1e-9, "straight ahead")
+	eq(arrow.bearingFrame, 0, "straight ahead")
 	eq(arrow.distance.text, "100 yd", "distance")
 	WaypointFromPlayer(0, 100) -- due west: a quarter turn left
 	mock.Advance(0.1)
-	near(arrow.head.rotation, math.pi / 2, 1e-9, "points left")
+	eq(arrow.bearingFrame, 32, "points left")
+	near(arrow.head.texCoord[3], 0.25, 1e-9, "left frame row")
 	mock.facing = math.pi / 2 -- now facing west
 	mock.Advance(0.1)
-	near(arrow.head.rotation, 0, 1e-9, "ahead once you turn to face it")
-	eq(arrow.head.vertex[2], 0.82, "gold while far")
+	eq(arrow.bearingFrame, 0, "ahead once you turn to face it")
+	eq(arrow.head.vertex[2], 0.84, "cyan while far")
 	WaypointFromPlayer(30, 0)
 	mock.Advance(0.1)
 	eq(arrow.head.vertex[2], 0.92, "green when close")
@@ -1136,6 +1137,79 @@ test("the arrow points at the waypoint relative to where you face", function()
 	eq(Nav:GetWaypoint(), nil, "cleared on arrival")
 	ok(mock.printed:find("Arrived"), "arrival announced")
 	ok(not arrow.shown, "arrow hidden")
+	mock.facing = nil
+end)
+
+test("compass yaw frames cover cardinals, diagonals and wrap without changing bearings", function()
+	setPlayer(1429, 0.42, 0.65)
+	mock.facing = 0
+	local cases = { { 100, 0, 0 }, { 100, 100, 16 }, { 0, 100, 32 }, { -100, 100, 48 },
+		{ -100, 0, 64 }, { -100, -100, 80 }, { 0, -100, 96 }, { 100, -100, 112 } }
+	for _, c in ipairs(cases) do
+		WaypointFromPlayer(c[1], c[2])
+		eq(WayfinderArrow.bearingFrame, c[3], "heading frame")
+		local uv = WayfinderArrow.head.texCoord
+		near(uv[1], (c[3] % 16) / 16, 1e-9, "atlas column")
+		near(uv[2] - uv[1], 1 / 16, 1e-9, "one column wide")
+		near(uv[3], math.floor(c[3] / 16) / 8, 1e-9, "atlas row")
+		near(uv[4] - uv[3], 1 / 8, 1e-9, "one row high")
+		ok(uv[1] >= 0 and uv[2] <= 1 and uv[3] >= 0 and uv[4] <= 1, "within atlas")
+	end
+	WaypointFromPlayer(100, 0)
+	for _, facing in ipairs({ -1e-6, 1e-6, 2 * math.pi - 1e-6, 2 * math.pi + 1e-6 }) do
+		mock.facing = facing
+		Nav:UpdateArrow()
+		eq(WayfinderArrow.bearingFrame, 0, "continuous across full turn")
+	end
+	for i = 0, 511 do
+		local bearing = (i + .37) * 2 * math.pi / 512
+		mock.facing = -bearing
+		Nav:UpdateArrow()
+		local displayed = WayfinderArrow.bearingFrame * 2 * math.pi / 128
+		local error = math.abs((displayed - bearing + math.pi) % (2 * math.pi) - math.pi)
+		ok(error <= math.pi / 128 + 1e-9, "rounding is under 1.41 degrees")
+	end
+	Nav:ClearWaypoint()
+	mock.facing = nil
+end)
+
+test("compass retains saved position, scale, unavailable-position state and pointer fallback", function()
+	local savedPosition, savedScale = ns.db.arrowPosition, ns:GetSetting("arrowScale")
+	local arrow = WayfinderArrow
+	ns.db.arrowPosition = { "CENTER", "CENTER", 75, -25 }
+	ns:SetSetting("arrowScale", 1.25)
+	Nav:PlaceArrow()
+	local point, _, relative, x, y = arrow:GetPoint()
+	eq(point, "CENTER", "saved anchor")
+	eq(relative, "CENTER", "relative anchor")
+	eq(x, 75, "saved x")
+	eq(y, -25, "saved y")
+	near(arrow:GetScale(), 1.25, 1e-9, "saved scale")
+	arrow:SetPoint("CENTER", UIParent, "CENTER", 85, -35)
+	arrow.scripts.OnDragStop(arrow)
+	eq(ns.db.arrowPosition[3], 85, "dragged x saved")
+	eq(ns.db.arrowPosition[4], -35, "dragged y saved")
+	setPlayer(1429, 0.42, 0.65)
+	WaypointFromPlayer(100, 0)
+	local playerMap = mock.playerMap
+	mock.playerMap = nil
+	Nav:UpdateArrow()
+	ok(not arrow.head.shown, "missing position hides direction")
+	eq(arrow.distance.text, "?", "missing position distance")
+	mock.playerMap = playerMap
+	mock.facing = math.pi / 2
+	arrow.useAtlas = false
+	Nav:UpdateArrow()
+	near(arrow.head.rotation, -math.pi / 2, 1e-9, "fallback points right relative to facing")
+	arrow.useAtlas, arrow.drawnFrame = true, nil
+	arrow.head:SetRotation(0)
+	Nav:UpdateArrow()
+	ok(arrow.head.shown, "position restored")
+	arrow.scripts.OnClick(arrow, "RightButton")
+	eq(Nav:GetWaypoint(), nil, "right click still clears")
+	ns.db.arrowPosition = savedPosition
+	ns:SetSetting("arrowScale", savedScale)
+	Nav:PlaceArrow()
 	mock.facing = nil
 end)
 

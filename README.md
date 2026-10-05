@@ -20,7 +20,7 @@ A world map addon for **WoW: Forever** (interface 16001, client 1.60.1).
 | Middle-click the map, the detail view, or an icon | Sets a waypoint there. Middle-click the waypoint's pin to remove it. |
 | Left-click a waypoint pin, or `/wf share` | Copies a `[Wayfinder:map:x:y:label]` location into your chat box. Send it directly or copy/paste the full text. Wayfinder 1.3.2+ makes it clickable in the recipient's chat; left-click sets their waypoint and arrow, replacing their current waypoint. Both players should update and `/reload`. |
 | `/wf add <shared waypoint>` | Adds a full pasted `[Wayfinder:...]` location, including one copied from outside the game. |
-| Waypoint arrow | Points toward the waypoint and shows the distance; turns green when you're close. Drag it to move it; right-click it to remove the waypoint. Cleared automatically when you arrive. |
+| Waypoint compass | A raised, faceted needle points toward the waypoint and shows the distance; turns green when you're close. Drag it to move it; right-click it to remove the waypoint. Cleared automatically when you arrive. |
 | Shift-click an icon | Remove it (for example, a vendor who moved) |
 | `/wf` | Options. `/wf stats`, `/wf reveal [hide\|dim\|show]`, `/wf show all`, `/wf hide mailbox`, `/wf way <x> <y> [label]`, `/wf clear`, `/wf arrow`, `/wf import`, `/wf reset pois` |
 
@@ -67,8 +67,9 @@ The script downloads the new build's WDT files from wago.tools. The other tools:
 - `tools/build_seed.py`: builds reviewed independent replacements and a report of remaining imported locations.
 - `tools/export_observations.py`: exports new Wayfinder measurements from SavedVariables for review.
 - `tools/make_icons.py`: redraws the addon's own icons.
+- `tools/make_arrow.py`: renders the compass base and its 128 perspective headings from project-defined geometry. See [the design and provenance notes](docs/arrow-design.md).
 - `tools/make_fog.py`: redraws the 16 soft fog-edge pieces.
-- `python tests/run_tests.py`: runs the test suite (needs `pip install lupa`).
+- `python tests/run_tests.py`: runs the test suite (needs `pip install lupa pillow`).
 
 ## Acknowledgements
 

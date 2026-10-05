@@ -7,7 +7,7 @@ local Navigation = ns:NewModule("Navigation")
 local MEDIA = "Interface\\AddOns\\Wayfinder\\Media\\"
 local NEAR_YARDS = 40      -- arrow turns green inside this distance
 local ARRIVE_YARDS = 10    -- close enough to count as arrived
-local GOLD = { 1, 0.82, 0.3 }
+local CYAN = { 0.35, 0.84, 1 }
 local GREEN = { 0.45, 0.92, 0.45 }
 
 local sqrt, atan2, min, max = math.sqrt, math.atan2, math.min, math.max
@@ -218,6 +218,25 @@ end
 -- The arrow
 ---------------------------------------------------------------------------
 local arrow
+local ARROW_FRAMES, ARROW_COLUMNS, ARROW_ROWS = 128, 16, 8
+local TURN = 2 * math.pi
+
+local function ShowBearing(angle)
+	-- Projected facets keep a fixed camera/light; rotate by selecting a yaw frame.
+	local index = math.floor((angle % TURN) / TURN * ARROW_FRAMES + 0.5) % ARROW_FRAMES
+	arrow.bearingFrame = index
+	if arrow.useAtlas then
+		if arrow.drawnFrame ~= index then
+			local column, row = index % ARROW_COLUMNS, math.floor(index / ARROW_COLUMNS)
+			arrow.head:SetTexCoord(column / ARROW_COLUMNS, (column + 1) / ARROW_COLUMNS,
+				row / ARROW_ROWS, (row + 1) / ARROW_ROWS)
+			arrow.drawnFrame = index
+		end
+	else
+		-- A running client may not see newly installed texture files until restarted.
+		arrow.head:SetRotation(angle)
+	end
+end
 
 local function FormatDistance(yards)
 	if yards >= 10000 then
@@ -228,8 +247,6 @@ end
 
 local function Tint(colour)
 	arrow.head:SetVertexColor(colour[1], colour[2], colour[3])
-	arrow.ring:SetVertexColor(colour[1], colour[2], colour[3], 0.6)
-	arrow.glow:SetVertexColor(colour[1], colour[2], colour[3], 0.25)
 	arrow.distance:SetTextColor(colour[1], colour[2], colour[3])
 end
 
@@ -243,14 +260,14 @@ function Navigation:UpdateArrow()
 	if not cont then
 		arrow.head:Hide()
 		arrow.distance:SetText("?")
-		Tint(GOLD)
+		Tint(CYAN)
 		return
 	end
 	if cont ~= current.c then
 		arrow.head:Hide()
 		arrow.distance:SetText("Far away")
 		arrow.label:SetText(current.n .. " (another continent)")
-		Tint(GOLD)
+		Tint(CYAN)
 		return
 	end
 	local dx, dy = current.x - wx, current.y - wy -- yards north, yards west
@@ -261,17 +278,16 @@ function Navigation:UpdateArrow()
 		self:ClearWaypoint()
 		return
 	end
-	-- Both the bearing and GetPlayerFacing count counter-clockwise from north, and
-	-- SetRotation turns counter-clockwise, so their difference points the arrow.
-	arrow.head:SetRotation(atan2(dy, dx) - (GetPlayerFacing() or 0))
+	-- Both bearing and player facing count counter-clockwise from north.
+	ShowBearing(atan2(dy, dx) - (GetPlayerFacing() or 0))
 	arrow.head:Show()
 	arrow.distance:SetText(FormatDistance(distance))
-	Tint(distance <= NEAR_YARDS and GREEN or GOLD)
+	Tint(distance <= NEAR_YARDS and GREEN or CYAN)
 end
 
 local function CreateArrow()
 	local f = CreateFrame("Button", "WayfinderArrow", UIParent)
-	f:SetSize(130, 140)
+	f:SetSize(130, 128)
 	f:SetFrameStrata("MEDIUM")
 	f:SetClampedToScreen(true)
 	f:SetMovable(true)
@@ -303,35 +319,39 @@ local function CreateArrow()
 	f:SetScript("OnLeave", GameTooltip_Hide)
 
 	local hub = CreateFrame("Frame", nil, f)
-	hub:SetSize(84, 84)
+	hub:SetSize(100, 90)
 	hub:SetPoint("TOP")
 	local function Layer(file, layer, subLevel, size)
 		local tex = f:CreateTexture(nil, layer, nil, subLevel)
-		tex:SetTexture(MEDIA .. "Arrow\\" .. file)
+		local loaded = tex:SetTexture(MEDIA .. "Arrow\\" .. file)
 		tex:SetSize(size, size)
 		tex:SetPoint("CENTER", hub, "CENTER")
-		return tex
+		return tex, loaded ~= false
 	end
-	f.glow = Layer("Glow", "BACKGROUND", -2, 130)
-	f.disc = Layer("Disc", "BACKGROUND", 0, 84)
-	f.ring = Layer("Ring", "BORDER", 0, 84)
-	f.head = Layer("Head", "ARTWORK", 0, 84)
+	f.base = Layer("CompassBase", "BACKGROUND", 0, 100)
+	f.head, f.useAtlas = Layer("NeedleAtlas", "ARTWORK", 0, 100)
+	if not f.useAtlas then
+		f.head:SetTexture(MEDIA .. "PlayerArrow")
+		f.head:SetSize(64, 64)
+		f.base:Hide()
+		ns.Print("Restart the game to load the new compass artwork; a simple pointer is shown until then.")
+	end
 
 	local plate = CreateFrame("Frame", nil, f)
-	plate:SetSize(124, 40)
-	plate:SetPoint("TOP", hub, "BOTTOM", 0, -2)
+	plate:SetSize(124, 36)
+	plate:SetPoint("TOP", hub, "BOTTOM", 0, 0)
 	local background = plate:CreateTexture(nil, "BACKGROUND")
 	background:SetAllPoints()
-	background:SetColorTexture(0.03, 0.04, 0.06, 0.85)
+	background:SetColorTexture(0.03, 0.06, 0.08, 0.9)
 	for _, side in ipairs({ { "TOPLEFT", "TOPRIGHT" }, { "BOTTOMLEFT", "BOTTOMRIGHT" } }) do
 		local line = plate:CreateTexture(nil, "BORDER")
-		line:SetColorTexture(GOLD[1], GOLD[2], GOLD[3], 0.35)
+		line:SetColorTexture(CYAN[1], CYAN[2], CYAN[3], 0.3)
 		line:SetPoint(side[1])
 		line:SetPoint(side[2])
 		line:SetHeight(1)
 	end
 	f.distance = plate:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-	f.distance:SetPoint("TOP", 0, -4)
+	f.distance:SetPoint("TOP", 0, -2)
 	f.label = plate:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	f.label:SetPoint("TOP", f.distance, "BOTTOM", 0, -1)
 	f.label:SetWidth(118)

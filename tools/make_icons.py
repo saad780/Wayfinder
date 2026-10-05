@@ -179,83 +179,6 @@ def waypoint_pin():
     return img
 
 
-# The floating waypoint arrow is built from four 128x128 layers, tinted in game.
-BIG = 128
-
-
-def soft_disc(radius, feather, colour):
-    """A filled disc whose alpha falls off over `feather` pixels (at 4x)."""
-    size = BIG * SS
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    px = img.load()
-    c = size / 2
-    for y in range(size):
-        for x in range(size):
-            dist = math.hypot(x + 0.5 - c, y + 0.5 - c)
-            t = min(max((radius - dist) / feather, 0.0), 1.0)
-            if t > 0:
-                px[x, y] = colour[:3] + (int(colour[3] * t * t * (3 - 2 * t)),)
-    return img
-
-
-def save_big(img, name):
-    img = img.resize((BIG, BIG), Image.LANCZOS)
-    path = os.path.join(OUT, "Arrow")
-    os.makedirs(path, exist_ok=True)
-    img.save(os.path.join(path, name + ".tga"))
-    print("wrote Arrow/" + name)
-
-
-def arrow_glow():
-    return soft_disc(64 * SS, 34 * SS, (255, 255, 255, 255))
-
-
-def arrow_disc():
-    # deep slate disc with a soft rim shadow and a slightly lighter top
-    size = BIG * SS
-    img = soft_disc(52 * SS, 6 * SS, (10, 12, 18, 235))
-    shade = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    sd = ImageDraw.Draw(shade)
-    for i in range(40):
-        a = int(26 * (1 - i / 40))
-        r = (46 - i * 0.6) * SS
-        sd.ellipse([size / 2 - r, size / 2 - r - 10 * SS, size / 2 + r, size / 2 + r - 10 * SS], fill=(70, 90, 130, a))
-    img.alpha_composite(shade)
-    mask = soft_disc(48 * SS, 2 * SS, (255, 255, 255, 255)).getchannel("A")
-    inner = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    inner.paste(img, (0, 0), mask)
-    base = soft_disc(52 * SS, 6 * SS, (10, 12, 18, 235))
-    base.alpha_composite(inner)
-    return base
-
-
-def arrow_ring():
-    size = BIG * SS
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    c, r = size / 2, 50 * SS
-    d.ellipse([c - r, c - r, c + r, c + r], outline=(255, 255, 255, 255), width=3 * SS)
-    r2 = 44 * SS
-    d.ellipse([c - r2, c - r2, c + r2, c + r2], outline=(255, 255, 255, 90), width=1 * SS)
-    return img
-
-
-def arrow_head():
-    """Notched navigation arrowhead, lit from the left."""
-    size = BIG * SS
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    def p(x, y):
-        return (x * SS * 2, y * SS * 2)  # design grid is 64 wide
-    # corners stay inside the inner ring at any rotation
-    tip, left, notch, right = p(32, 15), p(19.5, 45), p(32, 38.5), p(44.5, 45)
-    shadow = [(x + 2 * SS, y + 3 * SS) for x, y in (tip, left, notch, right)]
-    d.polygon(shadow, fill=(0, 0, 0, 110))
-    d.polygon([tip, left, notch], fill=(255, 255, 255, 255))
-    d.polygon([tip, notch, right], fill=(196, 196, 196, 255))
-    return img
-
-
 def main():
     os.makedirs(OUT, exist_ok=True)
     for name, fn in [
@@ -265,8 +188,8 @@ def main():
         ("Locate", locate), ("Waypoint", waypoint_pin),
     ]:
         save(fn(), name)
-    for name, fn in [("Glow", arrow_glow), ("Disc", arrow_disc), ("Ring", arrow_ring), ("Head", arrow_head)]:
-        save_big(fn(), name)
+    from make_arrow import generate
+    generate()
 
 
 if __name__ == "__main__":
