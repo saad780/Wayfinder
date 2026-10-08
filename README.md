@@ -16,6 +16,7 @@ A world map addon for **WoW: Forever** (interface 16001, client 1.60.1).
 | World map, fully zoomed in, scroll up | Opens the detail view at exactly what the map was showing |
 | Detail view | Scroll to zoom toward the cursor, drag to pan. Right-click, **Back to map**, or zoom all the way out to return. |
 | Map button (top-right of the map) | Turn icon types on or off, choose how unexplored terrain looks, open the detail view, open settings |
+| Shift + left-drag the map button | Move it away from other addons' buttons. The position is saved across reloads and logins. Reset it in the button's menu or under `/wf` → **World map → Map menu button → Reset position**. |
 | Locate button (top-left of the map, next to Blizzard's map pin button) | Switches the map to your zone and slides it to you. In the detail view it re-centres on you. |
 | Middle-click the map, the detail view, or an icon | Sets a waypoint there. Middle-click the waypoint's pin to remove it. |
 | Left-click a waypoint pin, or `/wf share` | Copies a `[Wayfinder:map:x:y:label]` location into your chat box. Send it directly or copy/paste the full text. Wayfinder 1.3.2+ makes it clickable in the recipient's chat; left-click sets their waypoint and arrow, replacing their current waypoint. Both players should update and `/reload`. |

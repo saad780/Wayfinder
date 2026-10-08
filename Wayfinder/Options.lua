@@ -93,6 +93,9 @@ function Options:BuildPanel()
 	Checkbox(category, "showOnWorldMap", "Show icons on the world map")
 	Checkbox(category, "showOnContinent", "Also show icons on continent maps")
 	Slider(category, "iconScale", "World map icon size", nil, 0.6, 2, 0.1, Percent)
+	Button(layout, "Map menu button", "Reset position", function()
+		self:ResetMapButtonPosition()
+	end, "Hold Shift and drag the Wayfinder map button to move it. Its position is saved. Reset places it beside the top-right buttons.")
 
 	Header(layout, "Icons")
 	for _, cat in ipairs(ns.CategoryList) do
@@ -194,14 +197,75 @@ local function BuildMenu(_, root)
 	root:CreateButton("Settings...", function()
 		Options:Open()
 	end)
+	root:CreateButton("Reset button position", function()
+		Options:ResetMapButtonPosition()
+	end)
+end
+
+local DEFAULT_BUTTON_X, DEFAULT_BUTTON_Y = -44, -6
+
+function Options:PositionMapButton(x, y)
+	local button = self.mapButton
+	if not button then return end
+	local canvas = WorldMapFrame:GetCanvasContainer()
+	local saved = ns.db.settings.mapButtonPosition
+	if type(saved) ~= "table" then saved = {} end
+	x = x or tonumber(saved.x) or DEFAULT_BUTTON_X
+	y = y or tonumber(saved.y) or DEFAULT_BUTTON_Y
+	-- Keep the entire button inside the canvas, including on a smaller map.
+	local scale = canvas:GetEffectiveScale() / button:GetEffectiveScale()
+	local width, height = canvas:GetWidth() * scale, canvas:GetHeight() * scale
+	if width > 0 and height > 0 then
+		x = math.max(math.min(6 + button:GetWidth() - width, -6), math.min(-6, x))
+		y = math.max(math.min(6 + button:GetHeight() - height, -6), math.min(-6, y))
+	end
+	button.offsetX, button.offsetY = x, y
+	button:ClearAllPoints()
+	button:SetPoint("TOPRIGHT", canvas, "TOPRIGHT", x, y)
+end
+
+function Options:StopMapButtonDrag()
+	local button = self.mapButton
+	if not button or not button.dragging then return end
+	button.dragging = nil
+	button:SetScript("OnUpdate", nil)
+	ns.db.settings.mapButtonPosition = { x = button.offsetX, y = button.offsetY }
+end
+
+function Options:ResetMapButtonPosition()
+	self:StopMapButtonDrag()
+	ns.db.settings.mapButtonPosition = nil
+	self:PositionMapButton()
 end
 
 function Options:CreateMapButton()
 	local button = CreateFrame("Button", "WayfinderMapButton", WorldMapFrame)
+	self.mapButton = button
 	button:SetSize(32, 32)
 	button:SetFrameStrata("HIGH")
-	-- Forever moves Blizzard's own map buttons away from this corner.
-	button:SetPoint("TOPRIGHT", WorldMapFrame:GetCanvasContainer(), "TOPRIGHT", -6, -6)
+	self:PositionMapButton()
+	button:RegisterForDrag("LeftButton")
+	button:SetScript("OnDragStart", function(self)
+		if not IsShiftKeyDown() then return end
+		GameTooltip_Hide()
+		local cursorX, cursorY = GetCursorPosition()
+		local scale = self:GetEffectiveScale()
+		local startX, startY = self.offsetX, self.offsetY
+		cursorX, cursorY = cursorX / scale, cursorY / scale
+		self.dragging = true
+		-- Move only our own anchor; the world map keeps control of its frames.
+		self:SetScript("OnUpdate", function(self)
+			local x, y = GetCursorPosition()
+			Options:PositionMapButton(startX + x / scale - cursorX, startY + y / scale - cursorY)
+		end)
+	end)
+	button:SetScript("OnDragStop", function() Options:StopMapButtonDrag() end)
+	button:SetScript("OnHide", function() Options:StopMapButtonDrag() end)
+	button:SetScript("OnShow", function() Options:PositionMapButton() end)
+	WorldMapFrame:GetCanvasContainer():HookScript("OnSizeChanged", function()
+		Options:StopMapButtonDrag()
+		Options:PositionMapButton()
+	end)
 
 	local background = button:CreateTexture(nil, "BACKGROUND")
 	background:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
@@ -223,12 +287,15 @@ function Options:CreateMapButton()
 	button:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight", "ADD")
 	button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	button:SetScript("OnClick", function(self)
-		MenuUtil.CreateContextMenu(self, BuildMenu)
+		if not self.dragging and not IsShiftKeyDown() then
+			MenuUtil.CreateContextMenu(self, BuildMenu)
+		end
 	end)
 	button:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_LEFT")
 		GameTooltip:SetText("Wayfinder")
 		GameTooltip:AddLine("Choose which icons to show.", 1, 1, 1)
+		GameTooltip:AddLine("Shift-drag to move this button. Position is saved.", 1, 1, 1)
 		GameTooltip:AddLine("Zoom all the way in, then keep scrolling to see minimap detail.", 0.7, 0.7, 0.7, true)
 		GameTooltip:Show()
 	end)
