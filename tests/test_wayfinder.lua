@@ -990,6 +990,110 @@ end)
 ---------------------------------------------------------------------------
 -- Menu, options, slash commands
 ---------------------------------------------------------------------------
+test("map button starts beside the corner and ordinary drags leave it alone", function()
+	ns.Options:ResetMapButtonPosition()
+	local button = WayfinderMapButton
+	local point, relative, relativePoint, x, y = button:GetPoint()
+	eq(point, "TOPRIGHT", "button anchor")
+	eq(relative, WorldMapFrame:GetCanvasContainer(), "map canvas anchor")
+	eq(relativePoint, "TOPRIGHT", "canvas anchor")
+	eq(x, -44, "space beside Questie's corner button")
+	eq(y, -6, "top margin")
+	mock.shift = false
+	button.scripts.OnDragStart(button)
+	eq(button.scripts.OnUpdate, nil, "ordinary drag does not move the button")
+	eq(ns.db.settings.mapButtonPosition, nil, "ordinary drag does not save a position")
+end)
+
+test("shift-drag saves a map-relative position with scaled cursor coordinates", function()
+	ns.Options:ResetMapButtonPosition()
+	local button, canvas = WayfinderMapButton, WorldMapFrame:GetCanvasContainer()
+	button.GetEffectiveScale = function() return 0.5 end
+	canvas.GetEffectiveScale = function() return 0.5 end
+	mock.cursorX, mock.cursorY, mock.shift = 500, 350, true
+	button.scripts.OnDragStart(button)
+	mock.cursorX, mock.cursorY = 350, 250
+	button.scripts.OnUpdate(button)
+	near(button.offsetX, -344, 1e-6, "horizontal cursor movement at half scale")
+	near(button.offsetY, -206, 1e-6, "vertical cursor movement at half scale")
+	local menu = mock.lastMenu
+	button.scripts.OnClick(button)
+	eq(mock.lastMenu, menu, "drag does not open the menu")
+	button.scripts.OnDragStop(button)
+	eq(button.scripts.OnUpdate, nil, "drag updates stop")
+	near(ns.db.settings.mapButtonPosition.x, -344, 1e-6, "saved horizontal position")
+	near(ns.db.settings.mapButtonPosition.y, -206, 1e-6, "saved vertical position")
+	button:ClearAllPoints()
+	mock.Fire("ADDON_LOADED", "Wayfinder")
+	button.scripts.OnShow(button)
+	local _, _, _, x, y = button:GetPoint()
+	near(x, -344, 1e-6, "saved horizontal position restored")
+	near(y, -206, 1e-6, "saved vertical position restored")
+	button.GetEffectiveScale, canvas.GetEffectiveScale = nil, nil
+	mock.cursorX, mock.cursorY, mock.shift = nil, nil, false
+	ns.Options:ResetMapButtonPosition()
+end)
+
+test("dragging cannot lose the map button outside the map", function()
+	local button = WayfinderMapButton
+	ns.Options:PositionMapButton(500, 500)
+	eq(button.offsetX, -6, "right edge")
+	eq(button.offsetY, -6, "top edge")
+	ns.Options:PositionMapButton(-20000, -20000)
+	eq(button.offsetX, -964, "left edge includes the button width")
+	eq(button.offsetY, -630, "bottom edge includes the button height")
+	ns.Options:ResetMapButtonPosition()
+end)
+
+test("map resize keeps the saved button visible and restores it when expanded", function()
+	local button, canvas = WayfinderMapButton, WorldMapFrame:GetCanvasContainer()
+	local width, height = canvas:GetSize()
+	ns.db.settings.mapButtonPosition = { x = -700, y = -400 }
+	ns.Options:PositionMapButton()
+	canvas:SetSize(260, 180)
+	canvas.scripts.OnSizeChanged(canvas, 260, 180)
+	eq(button.offsetX, -222, "clamped inside narrower map")
+	eq(button.offsetY, -142, "clamped inside shorter map")
+	eq(ns.db.settings.mapButtonPosition.x, -700, "preferred position retained")
+	canvas:SetSize(width, height)
+	canvas.scripts.OnSizeChanged(canvas, width, height)
+	eq(button.offsetX, -700, "preferred horizontal position restored")
+	eq(button.offsetY, -400, "preferred vertical position restored")
+	ns.Options:ResetMapButtonPosition()
+end)
+
+test("closing the map finishes a drag and saves the current position", function()
+	local button = WayfinderMapButton
+	mock.cursorX, mock.cursorY, mock.shift = 500, 350, true
+	button.scripts.OnDragStart(button)
+	mock.cursorX, mock.cursorY = 400, 250
+	button.scripts.OnUpdate(button)
+	button.scripts.OnHide(button)
+	eq(button.dragging, nil, "drag ended")
+	eq(button.scripts.OnUpdate, nil, "no background drag updates")
+	eq(ns.db.settings.mapButtonPosition.x, -144, "horizontal position saved")
+	eq(ns.db.settings.mapButtonPosition.y, -106, "vertical position saved")
+	mock.cursorX, mock.cursorY, mock.shift = nil, nil, false
+	ns.Options:ResetMapButtonPosition()
+end)
+
+test("button menu can reset its position without erasing exploration", function()
+	local button, explored = WayfinderMapButton, ns.db.explored
+	ns.db.settings.mapButtonPosition = { x = -300, y = -200 }
+	ns.Options:PositionMapButton()
+	button.scripts.OnClick(button)
+	local reset
+	for _, item in ipairs(mock.lastMenu.items) do
+		if item.text == "Reset button position" then reset = item.a end
+	end
+	ok(reset, "reset action in the menu")
+	reset()
+	eq(ns.db.settings.mapButtonPosition, nil, "saved position cleared")
+	eq(button.offsetX, -44, "default horizontal position")
+	eq(button.offsetY, -6, "default vertical position")
+	eq(ns.db.explored, explored, "exploration untouched")
+end)
+
 test("the world map menu toggles categories", function()
 	local button = WayfinderMapButton
 	button.scripts.OnClick(button)
