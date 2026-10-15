@@ -1979,6 +1979,235 @@ test("transport surveys use the player position and reject incomplete routes", f
 	ns.db.observations = saved
 end)
 
+---------------------------------------------------------------------------
+-- Other addons' map pins (matching the installed addons' frame layouts).
+---------------------------------------------------------------------------
+local function addonMarkers()
+	WorldMapFrame:Show()
+	WorldMapFrame:SetMapID(1429)
+	local overlay = CreateFrame("Frame", nil, WorldMapFrame:GetCanvas())
+	local questie = Mixin(CreateFrame("Frame", nil, WorldMapFrame:GetCanvas()), MapCanvasPinMixin)
+	questie.pinTemplate = "HereBeDragonsPinsTemplateQuestie"
+	questie.GetMap = function() return WorldMapFrame end
+	questie:SetPosition(0.43, 0.64)
+	questie.icon = CreateFrame("Button", "TestQuestieIcon", questie)
+	questie.icon:SetSize(16, 16)
+	questie.icon.x, questie.icon.y = 43, 64 -- Questie's child uses percentages.
+	questie.icon.data = { Name = "Questie objective" }
+	questie.icon.texture = questie.icon:CreateTexture(nil, "OVERLAY", nil, 0)
+	questie.icon.texture:SetAllPoints()
+	questie.icon.texture:SetTexture("Interface\\AddOns\\Questie\\icon")
+	questie.icon.texture:SetTexCoord(0.1, 0.8, 0.2, 0.9)
+	questie.icon.texture:SetVertexColor(0.2, 0.6, 0.9, 1)
+	local rare = CreateFrame("Frame", nil, overlay)
+	rare:SetSize(24, 24)
+	rare.x, rare.y, rare.dataProvider = 0.47, 0.67, {}
+	rare.POI = { name = "RareScanner rare", mapID = 1429 }
+	rare.Texture = rare:CreateTexture(nil, "BACKGROUND", nil, 0)
+	rare.Texture:SetAllPoints()
+	rare.Texture:SetTexture("Interface\\AddOns\\RareScanner\\rare")
+	rare.IconTexture = rare:CreateTexture(nil, "ARTWORK", nil, 1)
+	rare.IconTexture:SetAllPoints()
+	rare.IconTexture:SetAtlas("RareAtlas")
+	local silver = CreateFrame("Frame", nil, overlay)
+	silver:SetSize(18, 18)
+	silver.x, silver.y, silver.provider = 0.50, 0.70, {} -- Quantized display position.
+	silver.coord, silver.uiMapID, silver.id = 49006900, 1429, 123
+	silver.texture = silver:CreateTexture(nil, "ARTWORK")
+	silver.texture:SetAllPoints()
+	silver.texture:SetAtlas("SilverAtlas")
+	return questie, rare, silver, overlay
+end
+
+local function externalPins()
+	local found = {}
+	for _, frame in ipairs(mock.frames) do
+		if frame.external and frame:IsVisible() then found[frame.external.frame] = frame end
+	end
+	return found
+end
+
+local function clickMarker(frame, button)
+	mock.mouseOver = frame
+	mock.Fire("GLOBAL_MOUSE_DOWN", button or "MiddleButton")
+	mock.Fire("GLOBAL_MOUSE_UP", button or "MiddleButton")
+end
+
+test("middle-click navigates to Questie, RareScanner and SilverDragon icons on the regular map", function()
+	ns.DetailView:Exit(true)
+	local questie, rare, silver, overlay = addonMarkers()
+	local oldSilver = SilverDragon
+	SilverDragon = { GetLabel = function(_, id) return id == 123 and "SilverDragon rare" end }
+	mock.mapCursorX, mock.mapCursorY = 0.99, 0.99
+	for _, case in ipairs({ { questie.icon, 0.43, 0.64, "Questie objective" },
+		{ rare, 0.47, 0.67, "RareScanner rare" }, { silver, 0.49, 0.69, "SilverDragon rare" } }) do
+		Nav:ClearWaypoint()
+		clickMarker(case[1])
+		local wp = Nav:GetWaypoint()
+		ok(wp, "icon placed a waypoint")
+		local c, wx, wy = ns.MapToWorld(1429, case[2], case[3])
+		eq(wp.c, c, "continent")
+		near(wp.x, wx, 1e-6, "at icon, rather than map cursor or quantized position")
+		near(wp.y, wy, 1e-6, "at icon")
+		eq(wp.n, case[4], "marker name")
+	end
+	local wp = Nav:GetWaypoint()
+	local original = function() end
+	questie.icon:SetScript("OnClick", original)
+	clickMarker(questie.icon, "LeftButton")
+	clickMarker(questie.icon, "RightButton")
+	eq(Nav:GetWaypoint(), wp, "left/right clicks don't replace the waypoint")
+	eq(questie.icon:GetScript("OnClick"), original, "owner's click script retained")
+	mock.Advance(0.3)
+	for _, pin in ipairs(WorldMapFrame.pins) do
+		if pin.rec == wp then
+			mock.mouseOver = pin
+			mock.Fire("GLOBAL_MOUSE_DOWN", "MiddleButton")
+			pin:OnMouseClickAction("MiddleButton")
+			mock.Fire("GLOBAL_MOUSE_UP", "MiddleButton")
+			eq(Nav:GetWaypoint(), nil, "global handler never recreates a removed Wayfinder waypoint")
+			break
+		end
+	end
+	questie:Hide(); overlay:Hide()
+	SilverDragon, mock.mouseOver, mock.mapCursorX, mock.mapCursorY = oldSilver, nil, nil, nil
+	Nav:ClearWaypoint()
+end)
+
+test("icon navigation ignores outside clicks, releases elsewhere and recycled map pins", function()
+	local questie, _, _, overlay = addonMarkers()
+	Nav:ClearWaypoint()
+	mock.mouseOver = questie.icon
+	mock.Fire("GLOBAL_MOUSE_DOWN", "MiddleButton")
+	mock.mouseOver = WorldMapFrame.ScrollContainer
+	mock.Fire("GLOBAL_MOUSE_UP", "MiddleButton")
+	eq(Nav:GetWaypoint(), nil, "released away from the icon")
+	mock.mouseOver = questie.icon
+	mock.Fire("GLOBAL_MOUSE_DOWN", "MiddleButton")
+	questie:SetPosition(0.44, 0.65)
+	mock.Fire("GLOBAL_MOUSE_UP", "MiddleButton")
+	eq(Nav:GetWaypoint(), nil, "recycled icon does not use an old location")
+	mock.Fire("GLOBAL_MOUSE_DOWN", "MiddleButton")
+	WorldMapFrame:SetMapID(1414)
+	mock.Fire("GLOBAL_MOUSE_UP", "MiddleButton")
+	eq(Nav:GetWaypoint(), nil, "map changes cancel pending icon clicks")
+	WorldMapFrame:SetMapID(1429)
+	questie:SetParent(UIParent)
+	clickMarker(questie.icon)
+	eq(Nav:GetWaypoint(), nil, "same icon outside the world map is ignored")
+	questie:Hide(); overlay:Hide()
+	mock.mouseOver = nil
+end)
+
+test("detail view mirrors third-party artwork and exact locations with middle-click navigation", function()
+	setPlayer(1429, 0.42, 0.65)
+	local questie, rare, silver, overlay = addonMarkers()
+	mock.cursorX, mock.cursorY = 501, 334
+	ok(ns.DetailView:EnterFromMap(), "detail open")
+	mock.Advance(0.8)
+	local pins = externalPins()
+	ok(pins[questie] and pins[rare] and pins[silver], "all three pin systems mirrored")
+	local copy = pins[questie].externalTextures[1]
+	eq(copy.texture, questie.icon.texture.texture, "Questie file preserved")
+	near(copy.vertex[1], 0.2, 1e-9, "tint preserved")
+	near(copy.texCoord[1], 0.1, 1e-9, "texture crop preserved")
+	eq(#pins[rare].externalTextures, 2, "RareScanner composite layers preserved")
+	eq(pins[rare].externalTextures[2].atlas, "RareAtlas", "overlay atlas preserved")
+	eq(pins[silver].externalTextures[1].atlas, "SilverAtlas", "SilverDragon atlas preserved")
+	eq(questie.icon:GetParent(), questie, "source remains with original parent")
+	local pin = pins[questie]
+	mock.mouseOver = pin
+	pin.scripts.OnEnter(pin)
+	eq(GameTooltip.lines[1], "Questie objective", "detail tooltip names the marker")
+	pin.scripts.OnMouseUp(pin, "MiddleButton")
+	-- The global handler must not replace a detail-view waypoint with the map below.
+	mock.Fire("GLOBAL_MOUSE_UP", "MiddleButton")
+	local _, wx, wy = ns.MapToWorld(1429, 0.43, 0.64)
+	near(Nav:GetWaypoint().x, wx, 1e-6, "detail icon waypoint x")
+	near(Nav:GetWaypoint().y, wy, 1e-6, "detail icon waypoint y")
+	mock.Advance(0.2)
+	pin = externalPins()[questie]
+	mock.mouseOver, mock.shift = pin, true
+	pin.scripts.OnMouseDown(pin, "LeftButton")
+	pin.scripts.OnMouseUp(pin, "LeftButton")
+	ok(questie:IsVisible(), "shift-click never deletes an external marker")
+	mock.shift = false
+	local c, px, py = ns.DetailView:GetCenter()
+	local scale
+	for _, frame in ipairs(mock.frames) do
+		if frame.parent == WayfinderDetailView and frame.w == 1 and frame.h == 1 then scale = frame.scale end
+	end
+	local vx, vy = pin.points.CENTER[3], -pin.points.CENTER[4]
+	local qx, qy = ns.WorldToPlane(wx, wy)
+	near(vx, (qx - px) * scale + 501, 1e-5, "projected x tracks zoom")
+	near(vy, (qy - py) * scale + 334, 1e-5, "projected y tracks zoom")
+	questie:SetPosition(0.44, 0.65)
+	Nav:ClearWaypoint()
+	pin.scripts.OnMouseUp(pin, "MiddleButton")
+	eq(Nav:GetWaypoint(), nil, "recycled source cannot navigate to a stale detail marker")
+	questie:Hide(); overlay:Hide()
+	ns.DetailView:Exit(true)
+	mock.mouseOver = nil
+	Nav:ClearWaypoint()
+end)
+
+test("detail markers follow live visibility, movement and artwork changes", function()
+	local questie, rare, silver, overlay = addonMarkers()
+	ok(ns.DetailView:EnterFromMap(), "detail open")
+	mock.Advance(0.8)
+	questie.icon.texture:SetAlpha(0)
+	rare:Hide()
+	silver:SetAlpha(0)
+	mock.Advance(0.7)
+	local pins = externalPins()
+	eq(pins[questie], nil, "Questie's transparent filtering respected")
+	eq(pins[rare], nil, "hidden rare removed")
+	eq(pins[silver], nil, "parent frame alpha respected")
+	questie.icon.texture:SetAlpha(1)
+	questie:SetPosition(0.45, 0.66)
+	questie.icon.texture:SetAtlas("UpdatedAtlas")
+	rare:Show()
+	silver:SetAlpha(1)
+	mock.Advance(0.7)
+	pins = externalPins()
+	ok(pins[questie] and pins[rare] and pins[silver], "icons added back without reopening detail")
+	eq(pins[questie].externalTextures[1].atlas, "UpdatedAtlas", "reused art refreshed")
+	local _, wx, wy = ns.MapToWorld(1429, 0.45, 0.66)
+	near(pins[questie].external.x, wx, 1e-6, "moving icon refreshed")
+	near(pins[questie].external.y, wy, 1e-6, "moving icon refreshed")
+	questie.icon.texture:SetVertexColor(0.2, 0.6, 0.9, 0)
+	mock.Advance(0.7)
+	eq(externalPins()[questie], nil, "zero vertex alpha does not leave an invisible clickable mirror")
+	questie:Hide(); overlay:Hide()
+	ns.DetailView:Exit(true)
+	eq(count(externalPins()), 0, "all mirrors released on exit")
+end)
+
+test("unreadable addon pins do not suppress healthy icons or change navigation", function()
+	local questie, rare, _, overlay = addonMarkers()
+	local broken = Mixin(CreateFrame("Frame", nil, WorldMapFrame:GetCanvas()), MapCanvasPinMixin)
+	broken.GetMap = function() return WorldMapFrame end
+	broken.GetPosition = function() error("restricted position") end
+	broken:SetSize(16, 16)
+	local badArt = Mixin(CreateFrame("Frame", nil, WorldMapFrame:GetCanvas()), MapCanvasPinMixin)
+	badArt.GetMap = function() return WorldMapFrame end
+	badArt:SetPosition(0.46, 0.65)
+	badArt:SetSize(16, 16)
+	badArt.GetCenter = function() error("restricted anchor") end
+	ok(ns.DetailView:EnterFromMap(), "detail open despite broken addon pin")
+	mock.Advance(0.8)
+	local pins = externalPins()
+	ok(pins[questie] and pins[rare], "healthy addon icons still visible")
+	eq(pins[broken], nil, "broken pin skipped")
+	eq(pins[badArt], nil, "unreadable appearance skipped")
+	ns.DetailView:Exit(true)
+	Nav:ClearWaypoint()
+	clickMarker(broken)
+	eq(Nav:GetWaypoint(), nil, "unreadable pin cannot place a waypoint")
+	questie:Hide(); overlay:Hide(); broken:Hide(); badArt:Hide()
+	mock.mouseOver = nil
+end)
+
 local passed, failed = 0, 0
 for _, t in ipairs(tests) do
 	local success, err = pcall(t.fn)

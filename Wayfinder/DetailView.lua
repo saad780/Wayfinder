@@ -441,7 +441,12 @@ end
 local freePins, activePins = {}, {}
 
 local function PinOnEnter(pin)
-	if pin.quest then
+	if pin.external then
+		GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
+		GameTooltip:SetText(pin.external.n, 1, 0.82, 0)
+		GameTooltip:AddLine("Middle-click to set a waypoint here", 0.5, 0.5, 0.5)
+		GameTooltip:Show()
+	elseif pin.quest then
 		GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
 		GameTooltip:SetText(pin.quest.questName or QUESTS_LABEL or "Quest", 1, 0.82, 0)
 		GameTooltip:AddLine("Available quest", 0.8, 0.8, 0.8)
@@ -476,7 +481,9 @@ local function PinOnMouseUp(pin, button)
 			end
 		end
 	elseif button == "MiddleButton" and pin:IsMouseOver() then
-		if pin.rec then
+		if pin.external then
+			ns.AddonPins:NavigateTo(pin.external)
+		elseif pin.rec then
 			ns.Navigation:ToggleWaypointAt(pin.rec, pin.catID)
 		elseif pin.quest then
 			local wx, wy = ns.PlaneToWorld(pin.px, pin.py)
@@ -502,7 +509,9 @@ local function AcquirePin()
 		pin:SetScript("OnMouseDown", PinOnMouseDown)
 		pin:SetScript("OnMouseUp", PinOnMouseUp)
 	end
-	pin.rec, pin.catID, pin.quest = nil, nil, nil
+	pin.rec, pin.catID, pin.quest, pin.external = nil, nil, nil, nil
+	pin.icon:Show()
+	pin.highlight:Show()
 	pin:SetFrameLevel(pinLayer:GetFrameLevel() + 1)
 	pin:Show()
 	activePins[#activePins + 1] = pin
@@ -514,7 +523,8 @@ local function ReleasePins()
 		local pin = activePins[i]
 		pin:Hide()
 		pin:ClearAllPoints()
-		pin.rec, pin.quest = nil, nil
+		pin.rec, pin.quest, pin.external = nil, nil, nil
+		for _, texture in ipairs(pin.externalTextures or {}) do texture:Hide() end
 		freePins[#freePins + 1] = pin
 		activePins[i] = nil
 	end
@@ -583,6 +593,15 @@ local function RefreshPins()
 	ns.Database:Query(cont, minX, maxX, minY, maxY, Add)
 	ns.Seeds:Query(cont, minX, maxX, minY, maxY, Add)
 	AddQuestPins(l, r, t, b, size)
+	ns.AddonPins:Query(cont, minX, maxX, minY, maxY, function(entry)
+		local pin = AcquirePin()
+		pin.external = entry
+		pin.px, pin.py = ns.WorldToPlane(entry.x, entry.y)
+		pin.icon:Hide()
+		pin.highlight:Hide()
+		local ok, shown = pcall(ns.AddonPins.ApplyAppearance, ns.AddonPins, pin, entry)
+		if not ok or not shown then pin:Hide() end
+	end)
 
 	local waypoint = ns.Navigation:GetWaypoint()
 	if waypoint and waypoint.c == cont then
@@ -928,6 +947,7 @@ function DetailView:EnterFromMap()
 	underlayMapID = nil
 	ReleaseAllTiles()
 	SetUnderlay(info.mapType == Enum.UIMapType.Continent and ZoneAt(cx, cy) or mapID)
+	ns.AddonPins:Refresh()
 	pinsDirty, transformDirty = true, true
 	ApplyTransform()
 
@@ -1043,6 +1063,7 @@ function DetailView:OnLogin()
 	ns:On("POI_UPDATED", MarkPins)
 	ns:On("POI_REMOVED", MarkPins)
 	ns:On("WAYPOINT_CHANGED", MarkPins)
+	ns:On("ADDON_PINS_CHANGED", MarkPins)
 	ns:On("QUEST_AVAILABILITY_CHANGED", MarkPins)
 	ns:On("DATA_CHANGED", function()
 		if active then

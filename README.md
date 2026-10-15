@@ -8,6 +8,7 @@ A world map addon for **WoW: Forever** (interface 16001, client 1.60.1).
 - **Quest markers mean available pickups.** Each character sees only verified unaccepted quests. Accepting the last known offer, or confirming that an NPC has no offers left, removes their quest marker; their other services remain. Old quest markers stay hidden until verified again. Abandoned and repeatable quests return when the game confirms they are offered again.
 - **Every icon type can be turned on or off.** Use the map button, the options panel, or `/wf show|hide <category>`.
 - **It gets you there.** A button returns the map to where you are. Middle-click anywhere (or on any icon) to drop a waypoint, and a floating arrow points the way.
+- **Addon icons keep zooming too.** Displayed Questie, RareScanner, SilverDragon and other map markers carry into the terrain detail view with their artwork and positions. Middle-click them on either view to navigate to their location. Their owning addon's filters still apply.
 
 ## Using it
 
@@ -48,6 +49,8 @@ Each tile is split into 16×16 cells of about 33 yards, and the cells you have e
 - **Shown**: the real terrain at full brightness.
 
 The detail view is a separate frame laid over the map. Blizzard's map state is never modified, apart from panning it to where you were looking when you leave, so the addon does not taint the world map.
+
+Other addons' displayed map markers are mirrored into the detail view and refreshed twice a second. Hover for the marker's name and middle-click to navigate; left-drag still pans. Marker coverage follows the world map opened underneath the detail view. Panning into another zone does not load that zone's addon markers until you return to the regular map and select it.
 
 ## Known limits
 

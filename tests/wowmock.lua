@@ -53,6 +53,7 @@ function IsModifiedClick(action)
 end
 function IsMouseButtonDown(button) return mock.mouseDown == button end
 function GetCursorPosition() return mock.cursorX or 500, mock.cursorY or 350 end
+function GetMouseFoci() return mock.mouseFoci or (mock.mouseOver and { mock.mouseOver }) or {} end
 function GetPlayerFacing() return mock.facing or 0.5 end
 function GetRealmName() return "TestRealm" end
 function GetNormalizedRealmName() return "TestRealm" end
@@ -174,10 +175,28 @@ end
 
 local function NewRegion(kind, parent)
 	local r = setmetatable({ kind = kind, parent = parent, shown = true, w = 0, h = 0, scale = 1,
-		level = parent and (parent.level or 0) + 1 or 0, scripts = {}, points = {} }, Region)
+		level = parent and (parent.level or 0) + 1 or 0, scripts = {}, points = {}, children = {} }, Region)
+	if parent and kind ~= "Texture" and kind ~= "FontString" then table.insert(parent.children, r) end
 	return r
 end
 
+function Region:GetParent() return self.parent end
+function Region:GetChildren() return unpack(self.children) end
+function Region:GetRegions() return unpack(self.textures or {}) end
+function Region:GetObjectType() return self.kind end
+function Region:IsObjectType(kind)
+	return self.kind == kind or (kind == "Frame" and self.kind ~= "Texture" and self.kind ~= "FontString")
+end
+function Region:GetName() return self.name end
+function Region:SetParent(parent)
+	if self.parent then
+		for i, child in ipairs(self.parent.children) do
+			if child == self then table.remove(self.parent.children, i); break end
+		end
+	end
+	self.parent = parent
+	if parent then table.insert(parent.children, self) end
+end
 function Region:SetSize(w, h) self.w, self.h = w, h end
 function Region:SetWidth(w) self.w = w end
 function Region:SetHeight(h) self.h = h end
@@ -198,12 +217,16 @@ function Region:Show() self.shown = true end
 function Region:Hide() self.shown = false end
 function Region:SetShown(v) self.shown = not not v end
 function Region:IsShown() return self.shown end
-function Region:IsVisible() return self.shown end
+function Region:IsVisible() return self.shown and (not self.parent or self.parent:IsVisible()) end
 function Region:SetScale(s) assert(type(s) == "number" and s > 0, "bad scale") self.scale = s end
 function Region:GetScale() return self.scale end
 function Region:GetEffectiveScale() return 1 end
 function Region:GetLeft() return 0 end
 function Region:GetTop() return select(2, self:GetSize()) end
+function Region:GetCenter()
+	return self.centerX or self:GetLeft() + self:GetWidth() / 2,
+		self.centerY or self:GetTop() - self:GetHeight() / 2
+end
 function Region:SetFrameLevel(l) assert(l >= 0 and l <= 10000, "bad frame level") self.level = l end
 function Region:GetFrameLevel() return self.level end
 function Region:SetScript(name, fn) self.scripts[name] = fn end
@@ -217,12 +240,26 @@ function Region:RegisterEvent(event)
 	table.insert(mock.eventFrames[event], self)
 end
 function Region:IsMouseOver() return mock.mouseOver == self end
-function Region:SetTexture(t) self.texture = t; return true end
-function Region:SetAtlas(a) self.atlas = a end
+function Region:SetTexture(t) self.texture, self.atlas = t, nil; return true end
+function Region:SetAtlas(a) self.atlas, self.texture = a, nil end
+function Region:GetTexture() return self.texture end
+function Region:GetAtlas() return self.atlas end
+function Region:GetDrawLayer() return self.layer or "ARTWORK", self.subLevel or 0 end
+function Region:GetAlpha() return self.alpha or 1 end
+function Region:GetEffectiveAlpha()
+	assert(self:IsObjectType("Frame"), "GetEffectiveAlpha is a Frame API")
+	return self:GetAlpha() * (self.parent and self.parent:GetEffectiveAlpha() or 1)
+end
+function Region:GetTexCoord() return unpack(self.texCoord or { 0, 0, 0, 1, 1, 0, 1, 1 }) end
+function Region:GetVertexColor() return unpack(self.vertex or { 1, 1, 1, 1 }) end
+function Region:GetBlendMode() return self.blendMode or "BLEND" end
+function Region:SetBlendMode(mode) self.blendMode = mode end
+function Region:GetDesaturation() return self.desaturation or 0 end
+function Region:GetRotation() return self.rotation or 0 end
 function Region:SetText(t) self.text = t end
 function Region:SetFormattedText(f, ...) self.text = string.format(f, ...) end
 function Region:GetText() return self.text end
-function Region:SetVertexColor(r, g, b) self.vertex = { r, g, b } end
+function Region:SetVertexColor(r, g, b, a) self.vertex = { r, g, b, a or 1 } end
 function Region:SetRotation(r) self.rotation = r end
 function Region:SetColorTexture(r, g, b, a) self.texture = "color"; self.color = { r, g, b, a } end
 function Region:SetAlpha(a) self.alpha = a end
@@ -500,6 +537,7 @@ MapCanvasPinMixin = {}
 function MapCanvasPinMixin:UseFrameLevelType(t) self.frameLevelType = t end
 function MapCanvasPinMixin:SetScalingLimits() end
 function MapCanvasPinMixin:SetPosition(x, y) self.normalizedX, self.normalizedY = x, y end
+function MapCanvasPinMixin:GetPosition() return self.normalizedX, self.normalizedY end
 
 WorldMapFrame = CreateFrame("Frame", "WorldMapFrame")
 WorldMapFrame:SetSize(1002, 668)
@@ -516,7 +554,10 @@ function container:IsAtMaxZoom() return self.atMax end
 function container:GetCanvasScale() return 2 end
 function container:CalculateScrollExtentsAtScale() return 0.25, 0.75, 0.25, 0.75 end
 WorldMapFrame.ScrollContainer = container
+container.Child = CreateFrame("Frame", nil, container)
+container.Child:SetSize(1002, 668)
 function WorldMapFrame:GetCanvasContainer() return self.ScrollContainer end
+function WorldMapFrame:GetCanvas() return self.ScrollContainer.Child end
 function WorldMapFrame:GetMapID() return self.mapID end
 function WorldMapFrame:SetMapID(id) self.mapID = id end
 function WorldMapFrame:IsAtMinZoom() return mock.atMinZoom ~= false end
@@ -532,9 +573,10 @@ function WorldMapFrame:RemoveAllPinsByTemplate(template)
 	end
 end
 function WorldMapFrame:AcquirePin(template, ...)
-	local pin = CreateFrame("Frame", nil, self, template)
+	local pin = CreateFrame("Frame", nil, self:GetCanvas(), template)
 	Mixin(pin, _G[template:gsub("Template$", "Mixin")])
 	pin.template = template
+	pin.pinTemplate = template
 	pin.Icon = pin:CreateTexture()
 	pin.Highlight = pin:CreateTexture()
 	pin.GetMap = function() return self end
