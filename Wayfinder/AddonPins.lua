@@ -3,6 +3,7 @@
 local _, ns = ...
 local AddonPins = ns:NewModule("AddonPins")
 local entries = {}
+local hovered
 
 local function Number(value)
 	return ns.Readable(value) and type(value) == "number" and value == value
@@ -74,12 +75,64 @@ local function TryRead(frame)
 	return ok and entry or nil
 end
 
-function AddonPins:NavigateTo(entry)
+local function CurrentEntry(entry)
 	local current = TryRead(entry.frame)
 	if not current or current.source ~= entry.source or current.m ~= entry.m
-		or current.x ~= entry.x or current.y ~= entry.y then return false end
+		or current.x ~= entry.x or current.y ~= entry.y then return nil end
+	return current
+end
+
+function AddonPins:NavigateTo(entry)
+	local current = CurrentEntry(entry)
+	if not current then return false end
 	ns.Navigation:SetWaypoint(current.c, current.x, current.y, current.n, current.m)
 	return true
+end
+
+-- Use the owner's actual hover scripts with its original frame/data. Questie
+-- builds quest objectives dynamically, and some addons use their own tooltip.
+-- A mirrored icon must not replace that information with navigation help.
+function AddonPins:HideTooltip(pin)
+	if not hovered or (pin and hovered.pin ~= pin) then return end
+	local previous = hovered
+	hovered = nil
+	if previous.leave then pcall(previous.leave, previous.source) end
+	GameTooltip:Hide()
+end
+
+function AddonPins:ShowTooltip(pin, entry)
+	self:HideTooltip()
+	local current = CurrentEntry(entry)
+	if not current then return false end
+	local source = current.source
+	local enter = source:GetScript("OnEnter")
+	if not enter and source ~= current.frame then
+		source = current.frame
+		enter = source:GetScript("OnEnter")
+	end
+	if not enter then return false end
+	hovered = { pin = pin, source = source, leave = source:GetScript("OnLeave"), entry = current }
+	if not pcall(enter, source) then
+		self:HideTooltip(pin)
+		return false
+	end
+	return true
+end
+
+-- The detail view rebuilds its pooled pins as the map moves or artwork changes.
+-- Keep an open tooltip tied to the same live marker across those rebuilds.
+function AddonPins:RestoreTooltip(pins)
+	if not hovered then return end
+	if CurrentEntry(hovered.entry) then
+		for _, pin in ipairs(pins) do
+			if pin.external and pin.external.source == hovered.entry.source
+				and pin:IsVisible() and pin:IsMouseOver() then
+				hovered.pin = pin
+				return
+			end
+		end
+	end
+	self:HideTooltip()
 end
 
 function AddonPins:Refresh()

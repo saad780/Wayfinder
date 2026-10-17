@@ -2208,6 +2208,119 @@ test("unreadable addon pins do not suppress healthy icons or change navigation",
 	mock.mouseOver = nil
 end)
 
+test("mirrored Questie icons retain quest objectives and middle-click navigation", function()
+	local questie, _, _, overlay = addonMarkers()
+	-- Real quest markers need not have data.Name: the hover script resolves
+	-- their quest list and objective progress from the original icon's data.
+	questie.icon.data = { questTitle = "A Threat Within", progress = "Wolves slain: 3/10" }
+	local enters, leaves = 0, 0
+	local enter = function(self)
+		eq(self, questie.icon, "owner's original icon supplied")
+		enters = enters + 1
+		GameTooltip:SetText(self.data.questTitle)
+		GameTooltip:AddLine(self.data.progress)
+		GameTooltip:Show()
+		self.data.highlighted = true
+	end
+	local leave = function(self)
+		eq(self, questie.icon, "cleanup receives the original icon")
+		leaves = leaves + 1
+		self.data.highlighted = nil
+		GameTooltip:Hide()
+	end
+	questie.icon:SetScript("OnEnter", enter)
+	questie.icon:SetScript("OnLeave", leave)
+	ok(ns.DetailView:EnterFromMap(), "detail open")
+	mock.Advance(0.8)
+	local pin = externalPins()[questie]
+	mock.mouseOver = pin
+	pin.scripts.OnEnter(pin)
+	eq(GameTooltip.lines[1], "A Threat Within", "quest name restored instead of Map icon")
+	eq(GameTooltip.lines[2], "Wolves slain: 3/10", "objective progress retained")
+	eq(#GameTooltip.lines, 2, "generic navigation tooltip does not overwrite quest details")
+	pin.scripts.OnMouseUp(pin, "MiddleButton")
+	local _, wx, wy = ns.MapToWorld(1429, 0.43, 0.64)
+	near(Nav:GetWaypoint().x, wx, 1e-6, "middle-click still navigates to icon")
+	near(Nav:GetWaypoint().y, wy, 1e-6, "middle-click y")
+	pin.scripts.OnLeave(pin)
+	eq(leaves, 1, "owner cleanup runs on leaving the mirror")
+	ok(not questie.icon.data.highlighted, "quest hover highlight cleared")
+	eq(questie.icon:GetScript("OnEnter"), enter, "original hover handler retained")
+	eq(questie.icon:GetScript("OnLeave"), leave, "original cleanup retained")
+	pin.scripts.OnEnter(pin)
+	ns.DetailView:Exit(true)
+	eq(enters, 2, "original tooltip reused")
+	eq(leaves, 2, "closing detail view cleans up its tooltip")
+	ok(not GameTooltip:IsShown(), "tooltip hidden on exit")
+	questie:Hide(); overlay:Hide()
+	mock.mouseOver = nil
+	Nav:ClearWaypoint()
+end)
+
+test("mirrored icons preserve custom addon tooltips and contain hover errors", function()
+	local questie, rare, _, overlay = addonMarkers()
+	local custom = CreateFrame("GameTooltip", nil, UIParent)
+	custom:Hide()
+	rare:SetScript("OnEnter", function(self)
+		eq(self, rare, "custom tooltip uses original rare pin")
+		custom:SetText("Rare details and loot")
+		custom:Show()
+	end)
+	rare:SetScript("OnLeave", function() custom:Hide() end)
+	questie.icon:SetScript("OnEnter", function() error("unavailable quest data") end)
+	questie.icon:SetScript("OnLeave", function() error("released quest data") end)
+	ok(ns.DetailView:EnterFromMap(), "detail open")
+	mock.Advance(0.8)
+	local pins = externalPins()
+	GameTooltip:Hide()
+	pins[rare].scripts.OnEnter(pins[rare])
+	ok(custom:IsShown(), "owner's custom tooltip shown")
+	ok(not GameTooltip:IsShown(), "generic tooltip does not cover custom tooltip")
+	pins[questie].scripts.OnEnter(pins[questie])
+	ok(not custom:IsShown(), "previous addon tooltip cleaned up")
+	ok(GameTooltip.lines[2]:find("Middle%-click"), "broken hover falls back without interrupting the map")
+	local pin = pins[questie]
+	questie:SetPosition(0.44, 0.65)
+	GameTooltip:Hide()
+	pin.scripts.OnEnter(pin)
+	eq(GameTooltip.lines[2], "Middle-click to set a waypoint here", "stale mirror uses fallback")
+	ns.DetailView:Exit(true)
+	questie:Hide(); overlay:Hide()
+end)
+
+test("native map pin tooltips survive detail refresh and clear when the source disappears", function()
+	WorldMapFrame:Show()
+	WorldMapFrame:SetMapID(1429)
+	local source = Mixin(CreateFrame("Frame", nil, WorldMapFrame:GetCanvas()), MapCanvasPinMixin)
+	source.GetMap = function() return WorldMapFrame end
+	source:SetPosition(0.43, 0.64)
+	source:SetSize(16, 16)
+	local texture = source:CreateTexture(nil, "ARTWORK")
+	texture:SetAllPoints()
+	texture:SetTexture("QuestIcon")
+	local leaves = 0
+	source:SetScript("OnEnter", function(self)
+		eq(self, source, "native script receives native pin")
+		GameTooltip:SetText("Native quest information")
+		GameTooltip:Show()
+	end)
+	source:SetScript("OnLeave", function() leaves = leaves + 1 end)
+	ok(ns.DetailView:EnterFromMap(), "detail open")
+	mock.Advance(0.8)
+	local pin = externalPins()[source]
+	mock.mouseOver = pin
+	pin.scripts.OnEnter(pin)
+	mock.Advance(0.7)
+	ok(GameTooltip:IsShown(), "tooltip stays open across periodic artwork refresh")
+	eq(GameTooltip.lines[1], "Native quest information", "native information retained")
+	source:Hide()
+	mock.Advance(0.7)
+	eq(leaves, 1, "hidden source cleans up tooltip")
+	ok(not GameTooltip:IsShown(), "stale tooltip removed")
+	ns.DetailView:Exit(true)
+	mock.mouseOver = nil
+end)
+
 local passed, failed = 0, 0
 for _, t in ipairs(tests) do
 	local success, err = pcall(t.fn)

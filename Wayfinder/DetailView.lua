@@ -442,6 +442,7 @@ local freePins, activePins = {}, {}
 
 local function PinOnEnter(pin)
 	if pin.external then
+		if ns.AddonPins:ShowTooltip(pin, pin.external) then return end
 		GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
 		GameTooltip:SetText(pin.external.n, 1, 0.82, 0)
 		GameTooltip:AddLine("Middle-click to set a waypoint here", 0.5, 0.5, 0.5)
@@ -456,7 +457,8 @@ local function PinOnEnter(pin)
 	end
 end
 
-local function PinOnLeave()
+local function PinOnLeave(pin)
+	ns.AddonPins:HideTooltip(pin)
 	GameTooltip:Hide()
 end
 
@@ -518,7 +520,8 @@ local function AcquirePin()
 	return pin
 end
 
-local function ReleasePins()
+local function ReleasePins(keepTooltip)
+	if not keepTooltip then ns.AddonPins:HideTooltip() end
 	for i = #activePins, 1, -1 do
 		local pin = activePins[i]
 		pin:Hide()
@@ -573,7 +576,7 @@ end
 
 local function RefreshPins()
 	pinsDirty = false
-	ReleasePins()
+	ReleasePins(true)
 	local l, r, t, b = VisibleRect(0.1)
 	-- plane -> world box (wx = -py, wy = -px)
 	local minX, maxX, minY, maxY = -b, -t, -r, -l
@@ -618,6 +621,7 @@ local function RefreshPins()
 		end
 	end
 	PositionPins()
+	ns.AddonPins:RestoreTooltip(activePins)
 	DetailView.pinRect = { l, r, t, b }
 end
 
