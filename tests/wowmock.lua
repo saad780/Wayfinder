@@ -470,6 +470,10 @@ mock.questLog, mock.completedQuests, mock.repeatableQuests = {}, {}, {}
 function C_QuestLog.IsOnQuest(id) return mock.questLog[id] or false end
 function C_QuestLog.IsQuestFlaggedCompleted(id) return mock.completedQuests[id] or false end
 function C_QuestLog.IsRepeatableQuest(id) return mock.repeatableQuests[id] or false end
+mock.readyQuests, mock.questPOIs, mock.questTitles = {}, {}, {}
+function C_QuestLog.IsComplete(id) return mock.readyQuests[id] or false end
+function C_QuestLog.GetQuestsOnMap(mapID) return mock.questPOIs[mapID] or {} end
+function C_QuestLog.GetTitleForQuestID(id) return mock.questTitles[id] end
 C_TaxiMap = {}
 function C_TaxiMap.GetTaxiNodesForMap(mapID)
 	if mapID == 1453 then

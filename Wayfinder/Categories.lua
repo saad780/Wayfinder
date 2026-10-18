@@ -17,15 +17,15 @@ ns.CategoryList = {
 	{ id = "battlemaster", label = "Battlemasters", filter = "Battlemaster", path = TRACKING .. "BattleMaster" },
 	{ id = "trainer_class", label = "Class Trainers", filter = "TrainerClass", path = TRACKING .. "Class" },
 	{ id = "trainer_prof", label = "Profession Trainers", filter = "TrainerProfession", path = TRACKING .. "Profession" },
-	{ id = "weaponmaster", label = "Weapon Masters", media = "WeaponMaster" },
-	{ id = "quest", label = "Quest Givers", atlas = "QuestNormal", media = "Quest" },
+	{ id = "weaponmaster", label = "Weapon Masters", path = "Interface\\GossipFrame\\TrainerGossipIcon", media = "WeaponMaster" },
+	{ id = "quest", label = "Quest Givers", path = "Interface\\GossipFrame\\AvailableQuestIcon", media = "Quest" },
 	{ id = "repair", label = "Repair", filter = "Repair", path = TRACKING .. "Repair" },
 	{ id = "poison", label = "Poisons", filter = "VendorPoison", path = TRACKING .. "Poisons" },
 	{ id = "reagent", label = "Reagents", filter = "VendorReagent", path = TRACKING .. "Reagents" },
 	{ id = "ammo", label = "Ammunition", filter = "VendorAmmo", path = TRACKING .. "Ammunition" },
 	{ id = "food", label = "Food & Drink", filter = "VenderFood", path = TRACKING .. "Food" },
-	{ id = "vendor", label = "Other Vendors", media = "Vendor" },
-	{ id = "spirit", label = "Spirit Healers", media = "Spirit" },
+	{ id = "vendor", label = "Other Vendors", path = "Interface\\GossipFrame\\VendorGossipIcon", media = "Vendor" },
+	{ id = "spirit", label = "Spirit Healers", atlas = "poi-soulspiritghost", path = "Interface\\Icons\\Spell_Holy_GuardianSpirit", media = "Spirit" },
 }
 
 ns.CategoryByID = {}
@@ -91,7 +91,8 @@ function Categories:ResolveIcons()
 		[1] = AtlasExists("TaxiNode_Alliance") and "TaxiNode_Alliance" or nil,
 		[2] = AtlasExists("TaxiNode_Horde") and "TaxiNode_Horde" or nil,
 	}
-	self.questTurnInAtlas = AtlasExists("QuestTurnin") and "QuestTurnin" or nil
+	self.questTurnInAtlas = AtlasExists("UI-QuestIcon-TurnIn-Normal") and "UI-QuestIcon-TurnIn-Normal"
+		or (AtlasExists("QuestTurnin") and "QuestTurnin" or nil)
 	self.playerArrowAtlas = AtlasExists("UI-WorldMapArrow") and "UI-WorldMapArrow" or nil
 end
 
@@ -130,6 +131,12 @@ end
 
 function Categories:GetMediaPath(name)
 	return MEDIA .. name
+end
+
+function Categories:ApplyTurnInIcon(texture)
+	texture:SetTexCoord(0, 1, 0, 1)
+	if self.questTurnInAtlas then texture:SetAtlas(self.questTurnInAtlas)
+	else texture:SetTexture("Interface\\GossipFrame\\ActiveQuestIcon") end
 end
 
 ---------------------------------------------------------------------------

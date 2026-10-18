@@ -73,7 +73,12 @@ local function ReadPin(frame)
 	if not Number(alpha) or alpha <= 0 then return nil end
 	local w, h = source:GetSize()
 	if not Number(w) or not Number(h) or w <= 0 or h <= 0 or w > 128 or h > 128 then return nil end
-	return { frame = frame, source = source, c = c, x = wx, y = wy, m = mapID, n = Label(source) }
+	local questID = frame.questID
+	local data = source.data
+	if type(data) == "table" and data.Type == "complete" then questID = data.Id end
+	local turnIn = ns.QuestTurnIns:IsReady(questID) and true or nil
+	return { frame = frame, source = source, c = c, x = wx, y = wy, m = mapID, n = Label(source),
+		questID = questID, turnIn = turnIn }
 end
 
 -- Some third-party pins contain restricted values or are briefly half released.

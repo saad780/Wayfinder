@@ -450,7 +450,7 @@ local function PinOnEnter(pin)
 	elseif pin.quest then
 		GameTooltip:SetOwner(pin, "ANCHOR_RIGHT")
 		GameTooltip:SetText(pin.quest.questName or QUESTS_LABEL or "Quest", 1, 0.82, 0)
-		GameTooltip:AddLine("Available quest", 0.8, 0.8, 0.8)
+		GameTooltip:AddLine(pin.quest.turnIn and "Ready to turn in" or "Available quest", 0.8, 0.8, 0.8)
 		GameTooltip:Show()
 	else
 		ns.Tooltip:Show(pin, pin.rec, pin.catID)
@@ -596,6 +596,7 @@ local function RefreshPins()
 	ns.Database:Query(cont, minX, maxX, minY, maxY, Add)
 	ns.Seeds:Query(cont, minX, maxX, minY, maxY, Add)
 	AddQuestPins(l, r, t, b, size)
+	local mirroredTurnIns = {}
 	ns.AddonPins:Query(cont, minX, maxX, minY, maxY, function(entry)
 		local pin = AcquirePin()
 		pin.external = entry
@@ -604,7 +605,33 @@ local function RefreshPins()
 		pin.highlight:Hide()
 		local ok, shown = pcall(ns.AddonPins.ApplyAppearance, ns.AddonPins, pin, entry)
 		if not ok or not shown then pin:Hide() end
+		if ok and shown and entry.turnIn then
+			pin:SetFrameLevel(pinLayer:GetFrameLevel() + 2)
+			mirroredTurnIns[entry.questID] = true
+		end
 	end)
+
+	-- The available-quest API excludes accepted quests. The quest log supplies
+	-- their map POIs even when their original buttons cannot be mirrored.
+	if underlayMapID and ns:GetSetting("showLiveQuests") and ns:IsCategoryEnabled("quest") then
+		for _, info in ipairs(ns.QuestTurnIns:GetForMap(underlayMapID)) do
+			if not mirroredTurnIns[info.questID] then
+				local _, wx, wy = ns.MapToWorld(underlayMapID, info.x, info.y)
+				if wx then
+					local px, py = ns.WorldToPlane(wx, wy)
+					if px >= l and px <= r and py >= t and py <= b then
+						local pin = AcquirePin()
+						pin.quest, pin.px, pin.py = info, px, py
+						pin:SetSize(size, size)
+						pin:SetFrameLevel(pinLayer:GetFrameLevel() + 2)
+						ns.Categories:ApplyTurnInIcon(pin.icon)
+						ns.Categories:ApplyTurnInIcon(pin.highlight)
+						pin.icon:SetAlpha(1)
+					end
+				end
+			end
+		end
+	end
 
 	local waypoint = ns.Navigation:GetWaypoint()
 	if waypoint and waypoint.c == cont then
@@ -614,7 +641,7 @@ local function RefreshPins()
 			pin.rec, pin.catID = waypoint, "waypoint"
 			pin.px, pin.py = px, py
 			pin:SetSize(size * 1.3, size * 1.3)
-			pin:SetFrameLevel(pinLayer:GetFrameLevel() + 2) -- above the other icons
+			pin:SetFrameLevel(pinLayer:GetFrameLevel() + 3) -- above the other icons
 			ns.Categories:ApplyIcon(pin.icon, "waypoint")
 			ns.Categories:ApplyIcon(pin.highlight, "waypoint")
 			pin.icon:SetAlpha(1)
@@ -1084,6 +1111,7 @@ function DetailView:OnLogin()
 	ns:On("WAYPOINT_CHANGED", MarkPins)
 	ns:On("ADDON_PINS_CHANGED", MarkPins)
 	ns:On("QUEST_AVAILABILITY_CHANGED", MarkPins)
+	ns:On("QUEST_TURN_INS_CHANGED", MarkPins)
 	ns:On("DATA_CHANGED", function()
 		if active then
 			UpdateTiles(true)

@@ -74,8 +74,8 @@ function Options:BuildPanel()
 		"How bright unexplored terrain is when it is darkened.", 0.15, 0.8, 0.05, Percent)
 	Checkbox(category, "shareExploration", "Share exploration between characters",
 		"Show terrain explored by any of your characters, not only this one.")
-	Checkbox(category, "showLiveQuests", "Show available quests",
-		"Mark quests you can pick up in the zone (the same quest markers the game shows).")
+	Checkbox(category, "showLiveQuests", "Show quest markers",
+		"Mark available quests and completed quests ready to turn in, using the game's map locations.")
 	Slider(category, "detailIconScale", "Detail view icon size", nil, 0.6, 2, 0.1, Percent)
 	Slider(category, "revealRadius", "Reveal radius",
 		"How far around you counts as explored. \"Minimap\" uses whatever your minimap currently shows.",

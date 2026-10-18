@@ -63,6 +63,9 @@ def main():
     with open(os.path.join(HERE, "test_openmap.lua"), encoding="utf-8") as fh:
         if lua.execute(fh.read()):
             sys.exit(1)
+    with open(os.path.join(HERE, "test_turnins.lua"), encoding="utf-8") as fh:
+        if lua.execute(fh.read()):
+            sys.exit(1)
     for suite in ("test_sources.py", "test_arrow_art.py"):
         result = subprocess.run([sys.executable, os.path.join(HERE, suite)])
         if result.returncode:

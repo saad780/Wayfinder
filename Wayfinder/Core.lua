@@ -133,7 +133,7 @@ ns.defaults = {
 	shareExploration = false,    -- combine exploration from all your characters
 	revealRadius = 0,            -- yards; 0 = whatever the minimap currently shows
 	importExploration = true,    -- seed exploration from the world map's discovered areas
-	showLiveQuests = true,       -- available-quest markers from the game in the detail view
+	showLiveQuests = true,       -- pickup and turn-in markers from the game in the detail view
 	showArrow = true,            -- floating arrow pointing at the waypoint
 	arrowScale = 1.0,
 	clearOnArrival = true,       -- remove the waypoint once you reach it
