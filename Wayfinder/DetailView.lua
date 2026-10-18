@@ -2,8 +2,8 @@
 -- minimap's own terrain, drawn wherever you have explored, with every recorded
 -- location on top.
 --
--- It is a separate frame laid over the map canvas rather than extra zoom levels on
--- Blizzard's canvas, so the world map's own state is never modified.
+-- In continuous mode this is an input-transparent terrain layer following the
+-- native canvas. The standalone detail view supplies its own controls instead.
 --
 -- Everything is positioned on the "plane" (yards; x east, y south). A single scaled
 -- frame holds the terrain and map art, so panning or zooming is one SetPoint call.
@@ -23,9 +23,10 @@ local PIN_SIZE = 20
 local UNDERLAY_SHADE = 0.85
 
 local view, plane, pinLayer, arrowFrame, hud
-local active = false
+local active, following = false, false
 local cont
 local cx, cy, scale = 0, 0, 1       -- current centre (plane yards) and UI units per yard
+local verticalRatio = 1            -- continuous map art can stretch the two axes differently
 local tcx, tcy, tscale = 0, 0, 1    -- animation targets
 local exitScale, maxScale = 1, 10
 local originMapID, underlayMapID
@@ -73,9 +74,15 @@ end
 -- Visible plane rectangle: left, right, top, bottom.
 local function VisibleRect(margin)
 	local w, h = ViewSize()
-	local hw, hh = w / (2 * scale), h / (2 * scale)
+	local hw, hh = w / (2 * scale), h / (2 * scale * verticalRatio)
 	margin = margin or 0
 	return cx - hw * (1 + margin), cx + hw * (1 + margin), cy - hh * (1 + margin), cy + hh * (1 + margin)
+end
+
+function DetailView:GetPinBounds()
+	if not active then return end
+	local l, r, t, b = VisibleRect(0.25)
+	return { cont = cont, minX = -b, maxX = -t, minY = -r, maxY = -l }
 end
 
 local function CursorInView()
@@ -86,12 +93,12 @@ end
 
 local function ViewToPlane(vx, vy, centerX, centerY, atScale)
 	local w, h = ViewSize()
-	return centerX + (vx - w / 2) / atScale, centerY + (vy - h / 2) / atScale
+	return centerX + (vx - w / 2) / atScale, centerY + (vy - h / 2) / (atScale * verticalRatio)
 end
 
 local function PlaneToView(px, py)
 	local w, h = ViewSize()
-	return (px - cx) * scale + w / 2, (py - cy) * scale + h / 2
+	return (px - cx) * scale + w / 2, (py - cy) * scale * verticalRatio + h / 2
 end
 
 ---------------------------------------------------------------------------
@@ -257,8 +264,8 @@ local function AddFogTexture(list, ox, oy, piece, alpha)
 		tex:SetVertexColor(FOG_R, FOG_G, FOG_B)
 	end
 	tex:SetAlpha(alpha)
-	tex:SetSize((x1 - x0) * CELL, (y1 - y0) * CELL)
-	tex:SetPoint("TOPLEFT", plane, "TOPLEFT", ox + x0 * CELL, -(oy + y0 * CELL))
+	tex:SetSize((x1 - x0) * CELL, (y1 - y0) * CELL * verticalRatio)
+	tex:SetPoint("TOPLEFT", plane, "TOPLEFT", ox + x0 * CELL, -(oy + y0 * CELL) * verticalRatio)
 	list[#list + 1] = tex
 end
 
@@ -280,8 +287,8 @@ local function BuildTile(col, row)
 		local tex = AcquireTexture("ARTWORK", 0)
 		tex:SetTexture(fileID, "CLAMP", "CLAMP", "LINEAR")
 		tex:SetTexCoord(0, 1, 0, 1)
-		tex:SetSize(TILE, TILE)
-		tex:SetPoint("TOPLEFT", plane, "TOPLEFT", ox, -oy)
+		tex:SetSize(TILE, TILE * verticalRatio)
+		tex:SetPoint("TOPLEFT", plane, "TOPLEFT", ox, -oy * verticalRatio)
 		list[#list + 1] = tex
 		if mode ~= ns.UNEXPLORED_DARKENED then
 			return
@@ -318,8 +325,8 @@ local function BuildTile(col, row)
 		local tex = AcquireTexture("ARTWORK", 1)
 		tex:SetTexture(fileID, "CLAMP", "CLAMP", "LINEAR")
 		tex:SetTexCoord(x0 / CELLS, x1 / CELLS, y0 / CELLS, y1 / CELLS)
-		tex:SetSize((x1 - x0) * CELL, (y1 - y0) * CELL)
-		tex:SetPoint("TOPLEFT", plane, "TOPLEFT", ox + x0 * CELL, -(oy + y0 * CELL))
+		tex:SetSize((x1 - x0) * CELL, (y1 - y0) * CELL * verticalRatio)
+		tex:SetPoint("TOPLEFT", plane, "TOPLEFT", ox + x0 * CELL, -(oy + y0 * CELL) * verticalRatio)
 		list[#list + 1] = tex
 	end
 end
@@ -463,12 +470,13 @@ local function PinOnLeave(pin)
 end
 
 local function PinOnMouseDown(_, button)
-	if button == "LeftButton" then
+	if button == "LeftButton" and not following then
 		DetailView:BeginDrag()
 	end
 end
 
 local function PinOnMouseUp(pin, button)
+	if following and button == "LeftButton" then return end
 	if button == "LeftButton" then
 		local moved = DetailView:EndDrag()
 		if not moved and pin.rec and pin:IsMouseOver() then
@@ -489,7 +497,7 @@ local function PinOnMouseUp(pin, button)
 			ns.Navigation:ToggleWaypointAt(pin.rec, pin.catID)
 		elseif pin.quest then
 			local wx, wy = ns.PlaneToWorld(pin.px, pin.py)
-			ns.Navigation:SetWaypoint(cont, wx, wy, pin.quest.questName, underlayMapID)
+			ns.Navigation:SetWaypoint(cont, wx, wy, pin.quest.questName, pin.mapID or underlayMapID)
 		end
 	end
 end
@@ -511,7 +519,10 @@ local function AcquirePin()
 		pin:SetScript("OnMouseDown", PinOnMouseDown)
 		pin:SetScript("OnMouseUp", PinOnMouseUp)
 	end
-	pin.rec, pin.catID, pin.quest, pin.external = nil, nil, nil, nil
+	pin.rec, pin.catID, pin.quest, pin.external, pin.marker = nil, nil, nil, nil, nil
+	pin.mapID = underlayMapID
+	if following then pin:SetPassThroughButtons("LeftButton", "RightButton")
+	else pin:SetPassThroughButtons("RightButton") end
 	pin.icon:Show()
 	pin.highlight:Show()
 	pin:SetFrameLevel(pinLayer:GetFrameLevel() + 1)
@@ -538,6 +549,82 @@ local function PositionPins()
 		local pin = activePins[i]
 		local vx, vy = PlaneToView(pin.px, pin.py)
 		pin:SetPoint("CENTER", view, "TOPLEFT", vx, -vy)
+	end
+end
+
+local function DescribePin(pin, index)
+	local rec, entry, quest = pin.rec, pin.external, pin.quest
+	local turnIn = (entry and entry.turnIn) or (quest and quest.turnIn)
+	local isQuest = turnIn or quest or pin.catID == "quest" or (entry and entry.questID)
+	local giver = quest or pin.catID == "quest" or (entry and entry.giver)
+	local service = (rec and not rec.waypoint and pin.catID ~= "quest") or (entry and entry.service)
+	return { npcID = rec and rec.id or entry and entry.npcID,
+		name = rec and rec.n or entry and (entry.kind or service) and entry.n,
+		id = rec and rec.id or entry and entry.npcID,
+		n = rec and rec.n or entry and (entry.kind or service) and entry.n,
+		x = -pin.py, y = -pin.px, cat = pin.catID or entry and entry.service,
+		questID = quest and quest.questID or entry and entry.questID,
+		giver = giver, service = service, isQuest = isQuest,
+		rank = rec and rec.waypoint and 4 or turnIn and 3 or isQuest and 2 or 1,
+		quality = isQuest and (entry and 3 or quest and 2 or 1) or rec and 3 or 1,
+		index = index }
+end
+
+-- Match identities near their actual locations, never whole screen clusters.
+-- Different nearby NPCs and separate objective spawns must remain distinct.
+local function SameMarker(a, b)
+	local x, y = a.marker, b.marker
+	if x.service and y.service then return ns.ServiceLocations:Same(x,y) end
+	local distance = ns.Distance(a.px, a.py, b.px, b.py)
+	if distance > 25 then return false end
+	if x.npcID and y.npcID then return x.npcID == y.npcID end
+	local named = x.name and y.name and x.name ~= "Map icon" and y.name ~= "Map icon"
+	if named and x.name ~= y.name then return false end
+	if x.questID and x.questID == y.questID then
+		return (x.giver and y.giver) or distance < 0.5
+	end
+	if not ((x.giver or x.service) and (y.giver or y.service)) then return false end
+	if x.npcID and x.npcID == y.npcID then return true end
+	if named then
+		return x.name == y.name and (x.npcID or y.npcID or x.giver or y.giver or distance < 2)
+	end
+	return distance < 2
+end
+
+local function ResolvePins()
+	local ordered = {}
+	for index, pin in ipairs(activePins) do
+		if pin:IsShown() then
+			pin.marker = DescribePin(pin, index)
+			ordered[#ordered + 1] = pin
+		end
+	end
+	table.sort(ordered, function(a, b)
+		local x, y = a.marker, b.marker
+		if x.rank ~= y.rank then return x.rank > y.rank end
+		if x.quality ~= y.quality then return x.quality > y.quality end
+		if x.service and not y.service then return true end
+		if y.service and not x.service then return false end
+		if x.service and y.service then
+			if ns.ServiceLocations:Less(x,y) then return true end
+			if ns.ServiceLocations:Less(y,x) then return false end
+		end
+		return x.index < y.index
+	end)
+	local kept = {}
+	for _, pin in ipairs(ordered) do
+		local duplicate
+		for _, prior in ipairs(kept) do
+			if pin.marker.rank ~= 4 and prior.marker.rank ~= 4 and SameMarker(pin, prior) then
+				duplicate = true
+				break
+			end
+		end
+		if duplicate then pin:Hide()
+		else
+			pin:SetFrameLevel(pinLayer:GetFrameLevel() + pin.marker.rank)
+			kept[#kept + 1] = pin
+		end
 	end
 end
 
@@ -577,7 +664,7 @@ end
 local function RefreshPins()
 	pinsDirty = false
 	ReleasePins(true)
-	local l, r, t, b = VisibleRect(0.1)
+	local l, r, t, b = VisibleRect(0.2)
 	-- plane -> world box (wx = -py, wy = -px)
 	local minX, maxX, minY, maxY = -b, -t, -r, -l
 	local size = PIN_SIZE * (ns:GetSetting("detailIconScale") or 1)
@@ -595,8 +682,19 @@ local function RefreshPins()
 	end
 	ns.Database:Query(cont, minX, maxX, minY, maxY, Add)
 	ns.Seeds:Query(cont, minX, maxX, minY, maxY, Add)
-	AddQuestPins(l, r, t, b, size)
-	local mirroredTurnIns = {}
+	local questMaps, savedMap = {}, underlayMapID
+	if following then
+		for _, id in ipairs(ns.ContinuousEngine.MapStitch.VisibleMaps()) do
+			local rect = ns.GetMapRect(id)
+			if rect and rect.cont == cont then questMaps[#questMaps + 1] = id end
+		end
+	elseif underlayMapID then questMaps[1] = underlayMapID end
+	for _, id in ipairs(questMaps) do
+		underlayMapID = id
+		AddQuestPins(l, r, t, b, size)
+	end
+	underlayMapID = savedMap
+	local mirroredTurnIns, sources = {}, {}
 	ns.AddonPins:Query(cont, minX, maxX, minY, maxY, function(entry)
 		local pin = AcquirePin()
 		pin.external = entry
@@ -605,6 +703,7 @@ local function RefreshPins()
 		pin.highlight:Hide()
 		local ok, shown = pcall(ns.AddonPins.ApplyAppearance, ns.AddonPins, pin, entry)
 		if not ok or not shown then pin:Hide() end
+		if ok and shown and following then sources[entry.source] = true end
 		if ok and shown and entry.turnIn then
 			pin:SetFrameLevel(pinLayer:GetFrameLevel() + 2)
 			mirroredTurnIns[entry.questID] = true
@@ -613,25 +712,30 @@ local function RefreshPins()
 
 	-- The available-quest API excludes accepted quests. The quest log supplies
 	-- their map POIs even when their original buttons cannot be mirrored.
-	if underlayMapID and ns:GetSetting("showLiveQuests") and ns:IsCategoryEnabled("quest") then
-		for _, info in ipairs(ns.QuestTurnIns:GetForMap(underlayMapID)) do
-			if not mirroredTurnIns[info.questID] then
-				local _, wx, wy = ns.MapToWorld(underlayMapID, info.x, info.y)
-				if wx then
-					local px, py = ns.WorldToPlane(wx, wy)
-					if px >= l and px <= r and py >= t and py <= b then
-						local pin = AcquirePin()
-						pin.quest, pin.px, pin.py = info, px, py
-						pin:SetSize(size, size)
-						pin:SetFrameLevel(pinLayer:GetFrameLevel() + 2)
-						ns.Categories:ApplyTurnInIcon(pin.icon)
-						ns.Categories:ApplyTurnInIcon(pin.highlight)
-						pin.icon:SetAlpha(1)
+	if ns:GetSetting("showLiveQuests") and ns:IsCategoryEnabled("quest") then
+		for _, mapID in ipairs(questMaps) do
+			underlayMapID = mapID
+			for _, info in ipairs(ns.QuestTurnIns:GetForMap(mapID)) do
+				if not mirroredTurnIns[info.questID] then
+					local _, wx, wy = ns.MapToWorld(underlayMapID, info.x, info.y)
+					if wx then
+						local px, py = ns.WorldToPlane(wx, wy)
+						if px >= l and px <= r and py >= t and py <= b then
+							local pin = AcquirePin()
+							mirroredTurnIns[info.questID] = true
+							pin.quest, pin.px, pin.py = info, px, py
+							pin:SetSize(size, size)
+							pin:SetFrameLevel(pinLayer:GetFrameLevel() + 2)
+							ns.Categories:ApplyTurnInIcon(pin.icon)
+							ns.Categories:ApplyTurnInIcon(pin.highlight)
+							pin.icon:SetAlpha(1)
+						end
 					end
 				end
 			end
 		end
 	end
+	underlayMapID = savedMap
 
 	local waypoint = ns.Navigation:GetWaypoint()
 	if waypoint and waypoint.c == cont then
@@ -647,9 +751,23 @@ local function RefreshPins()
 			pin.icon:SetAlpha(1)
 		end
 	end
+	ResolvePins()
+	ns.AddonPins:SyncSources(sources)
 	PositionPins()
 	ns.AddonPins:RestoreTooltip(activePins)
 	DetailView.pinRect = { l, r, t, b }
+end
+
+local pinRefreshPending
+local function MarkPins()
+	pinsDirty = true
+	if following and not pinRefreshPending then
+		pinRefreshPending = true
+		C_Timer.After(0, function()
+			pinRefreshPending = nil
+			if active and following and pinsDirty then RefreshPins() end
+		end)
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -715,7 +833,7 @@ local function ApplyTransform()
 	local w, h = ViewSize()
 	plane:SetScale(scale)
 	plane:ClearAllPoints()
-	plane:SetPoint("TOPLEFT", view, "TOPLEFT", (w / 2 - cx * scale) / scale, -(h / 2 - cy * scale) / scale)
+	plane:SetPoint("TOPLEFT", view, "TOPLEFT", (w / 2 - cx * scale) / scale, -(h / 2 - cy * scale * verticalRatio) / scale)
 	-- Soft fog edges only where a cell is big enough on screen for them to show.
 	local fuzzy = scale * CELL >= DetailView.FUZZY_MIN_CELL_PIXELS
 	if fuzzy ~= fuzzyBuilt then
@@ -727,14 +845,18 @@ local function ApplyTransform()
 	local rect = DetailView.pinRect
 	local l, r, t, b = VisibleRect(0)
 	if pinsDirty or not rect or l < rect[1] or r > rect[2] or t < rect[3] or b > rect[4] then
+		-- Discover newly exposed addon pins before rebuilding the visible set.
+		-- Scanning is coalesced; smooth transforms inside the margin only move pins.
+		ns.AddonPins:RequestRefresh()
 		RefreshPins()
 	else
 		PositionPins()
 	end
-	UpdateArrow()
+	if not following then UpdateArrow() end
 end
 
 local function OnUpdate(_, elapsed)
+	if following then return end -- follows the native canvas, without a second animation
 	if dragging and not IsMouseButtonDown("LeftButton") then
 		-- released outside the view, so OnMouseUp never arrived
 		dragging = false
@@ -852,6 +974,7 @@ local function CreateFrames()
 	view:Hide()
 
 	local background = view:CreateTexture(nil, "BACKGROUND", nil, -8)
+	view.background = background
 	background:SetAllPoints()
 	background:SetColorTexture(0.05, 0.07, 0.09, 1)
 
@@ -861,6 +984,7 @@ local function CreateFrames()
 
 	pinLayer = CreateFrame("Frame", nil, view)
 	pinLayer:SetAllPoints()
+	pinLayer:SetIgnoreParentAlpha(true) -- only terrain fades; markers remain legible
 	pinLayer:SetFrameLevel(view:GetFrameLevel() + 5)
 
 	arrowFrame = CreateFrame("Frame", nil, view)
@@ -932,13 +1056,51 @@ end
 -- Entering and leaving
 ---------------------------------------------------------------------------
 function DetailView:IsActive()
-	return active
+	return active and not following
+end
+
+function DetailView:IsFollowingMap() return active and following end
+
+-- Terrain uses the native map's exact centre/scale. It never receives mouse
+-- input; cities and native pins remain in their normal canvas above this layer.
+function DetailView:FollowMap(continent, wx, wy, pixelsPerYard, alpha, level, questLevel, pixelsPerYardY)
+	if not view then CreateFrames() end
+	local ratio = (pixelsPerYardY or pixelsPerYard) / pixelsPerYard
+	local reset = not following or cont ~= continent or abs(verticalRatio - ratio) > 0.00001
+	if reset then
+		if active then self:Exit(true) end
+		ReleaseAllTiles()
+		ReleaseTextures(underlay)
+		ReleasePins()
+		underlayMapID = nil
+		pinsDirty = true
+	end
+	active, following, cont = true, true, continent
+	verticalRatio = ratio
+	cx, cy = ns.WorldToPlane(wx, wy)
+	tcx, tcy, scale, tscale = cx, cy, pixelsPerYard, pixelsPerYard
+	view:SetFrameLevel(level)
+	plane:SetFrameLevel(level + 1)
+	pinLayer:SetFrameLevel(questLevel)
+	view:EnableMouse(false)
+	view:EnableMouseWheel(false)
+	view.background:Hide()
+	hud:Hide()
+	arrowFrame:Hide()
+	view:SetAlpha(alpha)
+	view:Show()
+	if reset then
+		ns.MapPins:RefreshNow()
+		ns.AddonPins:Refresh()
+	end
+	ApplyTransform()
 end
 
 -- Opens the view over Blizzard's map showing exactly what the map shows now,
 -- then keeps zooming toward the cursor.
 -- Returns false plus a reason ("city" or "no terrain") when it can't open.
 function DetailView:EnterFromMap()
+	if ns.ContinuousMap:ZoomToDetail() then return true end
 	local mapID = WorldMapFrame:GetMapID()
 	local stitchedRect
 	if ns.OpenMapCompat:IsActive() then
@@ -1017,9 +1179,18 @@ function DetailView:Exit(skipPan)
 	if not active then
 		return
 	end
-	active = false
+	local wasFollowing = following
+	active, following = false, false
+	ns.AddonPins:SyncSources({})
+	if wasFollowing then ns.MapPins:RefreshNow() end
+	verticalRatio = 1
 	dragging = false
 	view:Hide()
+	view:SetAlpha(1)
+	view:EnableMouse(true)
+	view:EnableMouseWheel(true)
+	view.background:Show()
+	hud:Show()
 	ReleasePins()
 	ReleaseAllTiles()
 	ReleaseTextures(underlay)
@@ -1027,7 +1198,7 @@ function DetailView:Exit(skipPan)
 	GameTooltip:Hide()
 
 	-- Put Blizzard's map where the detail view was looking, if it is still the same map.
-	if not skipPan and not ns.OpenMapCompat:IsActive()
+	if not wasFollowing and not skipPan and not ns.OpenMapCompat:IsActive()
 		and WorldMapFrame:IsShown() and WorldMapFrame:GetMapID() == originMapID then
 		local moved = abs(cx - (self.entryX or cx)) + abs(cy - (self.entryY or cy))
 		local rect = ns.GetMapRect(originMapID)
@@ -1067,7 +1238,7 @@ function DetailView:HookWorldMap()
 		DetailView:Exit(true)
 	end)
 	hooksecurefunc(WorldMapFrame, "OnMapChanged", function()
-		if active and WorldMapFrame:GetMapID() ~= originMapID then
+		if active and not following and WorldMapFrame:GetMapID() ~= originMapID then
 			DetailView:Exit(true)
 		end
 	end)
@@ -1101,22 +1272,20 @@ function DetailView:OnLogin()
 				end
 			end
 		end
-		pinsDirty = true
+		MarkPins()
 	end)
-	local function MarkPins()
-		pinsDirty = true
-	end
 	ns:On("POI_UPDATED", MarkPins)
 	ns:On("POI_REMOVED", MarkPins)
 	ns:On("WAYPOINT_CHANGED", MarkPins)
 	ns:On("ADDON_PINS_CHANGED", MarkPins)
 	ns:On("QUEST_AVAILABILITY_CHANGED", MarkPins)
 	ns:On("QUEST_TURN_INS_CHANGED", MarkPins)
+	ns:On("MAP_LAYER_CHANGED", MarkPins)
 	ns:On("DATA_CHANGED", function()
 		if active then
 			UpdateTiles(true)
 		end
-		pinsDirty = true
+		MarkPins()
 	end)
 	ns:On("SETTING_CHANGED", function(key)
 		if not active then
@@ -1127,7 +1296,7 @@ function DetailView:OnLogin()
 		elseif key == "detailEnabled" and not ns:GetSetting("detailEnabled") then
 			self:Exit()
 		end
-		pinsDirty = true
+		MarkPins()
 	end)
 	ns:RegisterEvent("QUESTLINE_UPDATE", MarkPins)
 end

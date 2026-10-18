@@ -23,7 +23,7 @@ function TurnIns:IsReady(id)
 		and Read(C_QuestLog.IsOnQuest, id) == true and Read(C_QuestLog.IsComplete, id) == true
 end
 
-function TurnIns:GetForMap(mapID)
+function TurnIns:GetForMap(mapID, positionsOnly)
 	local result, seen = {}, {}
 	local quests = C_QuestLog and Read(C_QuestLog.GetQuestsOnMap, mapID)
 	if type(quests) ~= "table" then return result end
@@ -32,7 +32,7 @@ function TurnIns:GetForMap(mapID)
 			and not seen[info.questID] and Number(info.x) and Number(info.y)
 			and info.x >= 0 and info.x <= 1 and info.y >= 0 and info.y <= 1
 			and (info.isMapIndicatorQuest == nil or (ns.Readable(info.isMapIndicatorQuest) and info.isMapIndicatorQuest == false)) then
-			local title = Read(C_QuestLog.GetTitleForQuestID, info.questID)
+			local title = not positionsOnly and Read(C_QuestLog.GetTitleForQuestID, info.questID)
 			result[#result + 1] = { questID = info.questID, questName = type(title) == "string" and title or (QUESTS_LABEL or "Quest"),
 				x = info.x, y = info.y, turnIn = true }
 			seen[info.questID] = true

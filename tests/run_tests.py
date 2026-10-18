@@ -28,7 +28,7 @@ def toc_files():
     return files
 
 
-def main():
+def load_addon(continuous=False, with_openmap=False, disabled=False, quiet=False):
     lua = lupa.LuaRuntime(unpack_returned_tuples=True)
     lua.execute("io.stdout:setvbuf('no')")
     with open(os.path.join(HERE, "wowmock.lua"), encoding="utf-8") as fh:
@@ -46,15 +46,29 @@ def main():
         path = os.path.join(ADDON, rel)
         if rel.endswith(".xml"):
             ET.parse(path)  # must at least be well-formed
-            print(f"  parsed {rel}")
+            if not continuous and not quiet:
+                print(f"  parsed {rel}")
             continue
         with open(path, encoding="utf-8") as fh:
             load_file(fh.read(), "@" + rel.replace(os.sep, "/"), ns)
-        print(f"  loaded {rel}")
+        if not continuous and not quiet:
+            print(f"  loaded {rel}")
+
+    if continuous:
+        lua.execute(f"mock.withOpenMap = {'true' if with_openmap else 'false'}")
+        with open(os.path.join(HERE, "continuous_fixture.lua"), encoding="utf-8") as fh:
+            lua.execute(fh.read())
+        if disabled:
+            lua.execute("WayfinderDB = { settings = { continuousMap = false } }")
 
     lua.execute('mock.Fire("ADDON_LOADED", "Wayfinder")')
     lua.execute('mock.Fire("PLAYER_LOGIN")')
     lua.execute("mock.Advance(0.1)")
+    return lua
+
+
+def main():
+    lua = load_addon()
 
     with open(os.path.join(HERE, "test_wayfinder.lua"), encoding="utf-8") as fh:
         failed = lua.execute(fh.read())
@@ -66,6 +80,35 @@ def main():
     with open(os.path.join(HERE, "test_turnins.lua"), encoding="utf-8") as fh:
         if lua.execute(fh.read()):
             sys.exit(1)
+    with open(os.path.join(HERE, "test_minimap_turnins.lua"), encoding="utf-8") as fh:
+        if lua.execute(fh.read()):
+            sys.exit(1)
+    with open(os.path.join(HERE, "test_minimap_services.lua"), encoding="utf-8") as fh:
+        if lua.execute(fh.read()):
+            sys.exit(1)
+    with open(os.path.join(HERE, "test_tracking_menu.lua"), encoding="utf-8") as fh:
+        if lua.execute(fh.read()):
+            sys.exit(1)
+    startup = load_addon(quiet=True)
+    with open(os.path.join(HERE, "test_startup.lua"), encoding="utf-8") as fh:
+        if startup.execute(fh.read()):
+            sys.exit(1)
+    idle = load_addon(quiet=True)
+    with open(os.path.join(HERE, "test_idle.lua"), encoding="utf-8") as fh:
+        if idle.execute(fh.read()):
+            sys.exit(1)
+    for with_openmap in (False, True):
+        continuous = load_addon(continuous=True, with_openmap=with_openmap)
+        with open(os.path.join(HERE, "test_continuous.lua"), encoding="utf-8") as fh:
+            if continuous.execute(fh.read()):
+                sys.exit(1)
+    disabled = load_addon(continuous=True, with_openmap=True, disabled=True)
+    disabled.execute("""
+        assert(not Wayfinder.ContinuousMap.started)
+        assert(mock.openMapModule.enabled and mock.openMapModule.db.enabled)
+        assert(Wayfinder.OpenMapCompat:GetAPI() == OpenMapAPI)
+        io.write('  ok    disabling continuous mode preserves OpenMap and its compatibility adapter\\n')
+    """)
     for suite in ("test_sources.py", "test_arrow_art.py"):
         result = subprocess.run([sys.executable, os.path.join(HERE, suite)])
         if result.returncode:

@@ -21,6 +21,7 @@ local SAME_SPAWN_YARDS = 60
 local SAME_OBJECT_YARDS = 12
 
 local buckets = {} -- [cont][bucketKey] = { record = true }
+local bucketCounts = {}
 local bucketOf = setmetatable({}, { __mode = "k" }) -- record -> its bucket key
 
 local function BucketKey(wx, wy)
@@ -38,6 +39,7 @@ local function IndexAdd(rec)
 	if not bucket then
 		bucket = {}
 		cont[key] = bucket
+		bucketCounts[rec.c] = (bucketCounts[rec.c] or 0) + 1
 	end
 	bucket[rec] = true
 	bucketOf[rec] = key
@@ -49,12 +51,17 @@ local function IndexRemove(rec)
 	local bucket = cont and key and cont[key]
 	if bucket then
 		bucket[rec] = nil
+		if not next(bucket) then
+			cont[key] = nil
+			bucketCounts[rec.c] = bucketCounts[rec.c] - 1
+		end
 	end
 	bucketOf[rec] = nil
 end
 
 function Database:Rebuild()
 	wipe(buckets)
+	wipe(bucketCounts)
 	for key, rec in pairs(ns.db.pois) do
 		if type(rec) == "table" and rec.c and rec.x and rec.y and type(rec.cats) == "table" then
 			rec.k = key
@@ -73,6 +80,17 @@ end
 function Database:Query(cont, minX, maxX, minY, maxY, fn)
 	local contBuckets = buckets[cont]
 	if not contBuckets then
+		return
+	end
+	-- A continent-sized view spans mostly empty cells. Visit occupied buckets
+	-- instead; nearby minimap/detail queries keep the direct grid lookup.
+	local cells = (floor(maxX / GRID) - floor(minX / GRID) + 1) * (floor(maxY / GRID) - floor(minY / GRID) + 1)
+	if cells > (bucketCounts[cont] or 0) then
+		for _, bucket in pairs(contBuckets) do
+			for rec in pairs(bucket) do
+				if rec.x >= minX and rec.x <= maxX and rec.y >= minY and rec.y <= maxY then fn(rec) end
+			end
+		end
 		return
 	end
 	for bx = floor(minX / GRID), floor(maxX / GRID) do
@@ -259,8 +277,10 @@ function Database:RecordTaxi(info)
 			return r.cats.flight and r.kind == "npc"
 		end)
 		if near then
+			local changed = near.taxi ~= info.nodeID or (not near.n and info.name ~= nil)
 			near.taxi = info.nodeID
 			if not near.n then near.n = info.name end
+			if changed then ns:Fire("POI_UPDATED", near, false) end
 			return near, false
 		end
 		rec = Insert({
@@ -274,10 +294,11 @@ function Database:RecordTaxi(info)
 			w = 0.01,
 		})
 	end
-	rec.n = info.name
-	rec.f = info.faction
-	rec.m = info.mapID
-	ns:Fire("POI_UPDATED", rec, isNew)
+	-- A node can appear on several maps. Keep its established map association
+	-- and do not invalidate every consumer just because login saw it again.
+	local changed = isNew or rec.n ~= info.name or rec.f ~= info.faction or not rec.m
+	rec.n, rec.f, rec.m = info.name, info.faction, rec.m or info.mapID
+	if changed then ns:Fire("POI_UPDATED", rec, isNew) end
 	return rec, isNew
 end
 

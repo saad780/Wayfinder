@@ -100,33 +100,36 @@ function Categories:OnLogin()
 	self:ResolveIcons()
 end
 
--- Applies a category icon (optionally specialised for a location) to a texture.
-function Categories:ApplyIcon(texture, catID, poi)
-	texture:SetTexCoord(0, 1, 0, 1)
+-- Resolve artwork without touching a texture, so unchanged pins can retain it.
+function Categories:GetIconSource(catID, poi)
 	if catID == "waypoint" then
-		texture:SetTexture(MEDIA .. "Waypoint")
-		return
+		return "texture", MEDIA .. "Waypoint"
 	end
 	if catID == "transport" then
-		texture:SetTexture(MEDIA .. (TRANSPORT_MEDIA[poi and poi.sub] or "Boat"))
-		return
+		return "texture", MEDIA .. (TRANSPORT_MEDIA[poi and poi.sub] or "Boat")
 	end
 	if catID == "flight" and poi and self.flightAtlas then
 		local atlas = self.flightAtlas[poi.f or 0]
 		if atlas then
-			texture:SetAtlas(atlas)
-			return
+			return "atlas", atlas
 		end
 	end
 	local cat = ns.CategoryByID[catID]
 	local icon = cat and cat.icon
 	if not icon then
-		texture:SetTexture(MEDIA .. "Generic")
+		return "texture", MEDIA .. "Generic"
 	elseif icon.atlas then
-		texture:SetAtlas(icon.atlas)
+		return "atlas", icon.atlas
 	else
-		texture:SetTexture(icon.texture)
+		return "texture", icon.texture
 	end
+end
+
+-- Applies a category icon (optionally specialised for a location) to a texture.
+function Categories:ApplyIcon(texture, catID, poi)
+	local kind, icon = self:GetIconSource(catID, poi)
+	texture:SetTexCoord(0, 1, 0, 1)
+	if kind == "atlas" then texture:SetAtlas(icon) else texture:SetTexture(icon) end
 end
 
 function Categories:GetMediaPath(name)
@@ -145,7 +148,7 @@ end
 -- Returns the category whose icon a location should show, or nil if it should be
 -- hidden: none of its categories enabled, hostile faction, a trainer for another
 -- class, or only seen from a distance when approximate locations are off.
-function Categories:GetVisibleCategory(rec)
+function Categories:GetVisibleCategory(rec, servicesOnly)
 	local settings = ns.db.settings
 	local faction = rec.f
 	local mine = ns.playerFaction
@@ -158,11 +161,12 @@ function Categories:GetVisibleCategory(rec)
 	local best, bestOrder
 	for catID in pairs(rec.cats) do
 		local cat = ns.CategoryByID[catID]
-		local available = catID ~= "quest" or ns.QuestAvailability:HasAvailableQuest(rec)
-		if cat and available and settings.cats[catID] ~= false and (not bestOrder or cat.order < bestOrder) then
+		local available = catID ~= "quest" or (not servicesOnly and ns.QuestAvailability:HasAvailableQuest(rec))
+		local order = catID == "quest" and 0 or (cat and cat.order)
+		if cat and available and settings.cats[catID] ~= false and (not bestOrder or order < bestOrder) then
 			local otherClass = catID == "trainer_class" and rec.cls and rec.cls ~= ns.playerClass
 			if not otherClass or settings.showAllClassTrainers then
-				best, bestOrder = catID, cat.order
+				best, bestOrder = catID, order
 			end
 		end
 	end

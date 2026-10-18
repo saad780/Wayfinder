@@ -2,12 +2,18 @@
 
 A world map addon for **WoW: Forever** (interface 16001, client 1.60.1).
 
-- **The map keeps zooming.** Zoom the world map in as far as it goes, then scroll in again. The view continues into the minimap's own terrain textures: bright where you have explored, darkened where you haven't.
+- **One continuous map.** Scroll from Azeroth through continents, neighbouring zones and cities without changing views. Drag across zone borders; the underlying map follows after you stop, keeping native quest and addon markers current. OpenMap is not required.
+- **The map keeps zooming.** Outdoor map art blends into the minimap's own terrain textures, down to a 140-yard window: bright where you have explored, darkened where you haven't. The cursor stays anchored throughout the zoom.
+- **Cities stay on the map.** Capital artwork appears in place as you zoom, including Orgrimmar, Thunder Bluff, Stormwind, Ironforge, Darnassus and Undercity. City maps stay above terrain, so underground cities show their streets instead of the surface above them.
+- **Undercity defaults underground.** At close zoom, its full city plan replaces surface terrain. Use the compact layer selector near the map's top-right to swap between Undercity and the overworld without changing your zoom or position. Its stacked-layer glyph highlights the current floor. Returning to the area or reopening the map defaults to Undercity again.
 - **It fills in as you go.** Everything your minimap shows while you walk, ride or fly is marked as explored. The areas your character discovered before you installed the addon are imported from the world map.
 - **It remembers town services.** Vendors, repair, mailboxes, quest givers, flight masters, boats, zeppelins, the tram, auctioneers, bankers, innkeepers, class and profession trainers, weapon masters, stable masters, battlemasters and spirit healers all get icons. They appear on the world map and in the detail view.
 - **Quest pickups mean available quests.** Each character sees only verified unaccepted offers. Accepting the last known offer, or confirming that an NPC has no offers left, removes their pickup marker; their other services remain. Old pickup markers stay hidden until verified again. Abandoned and repeatable quests return when the game confirms they are offered again.
 - **Turn-ins stay visible up close.** Completed quests from the game's map retain golden question marks in the terrain detail view, above overlapping service icons, with tooltips and middle-click navigation.
+- **Quests take priority.** An NPC's quest marker replaces their service marker while a quest is available or ready to turn in. Deep zoom combines native, addon and recorded copies into one marker per NPC, while keeping different nearby NPCs and objective locations separate. The corner minimap matches quest-giver identities, with a tight location fallback when identity is unavailable, so another merchant does not disappear when zooming out near a quest marker.
+- **Live minimap turn-ins use the game's tracking.** Wayfinder suppresses Questie's extra fixed turn-in pins on the corner minimap when Blizzard supplies that quest's location. Native NPC movement stays under the client's control; Wayfinder adds no competing static marker. When the client supplies no quest location, the addon fallback remains. World-map turn-ins, pickups and objectives keep their existing behavior. Toggle this under `/wf` → **Live minimap**.
 - **Service icons match Blizzard's.** Merchants use the game's vendor icon; other town services use Blizzard's tracking, gossip or map artwork in both map views.
+- **One service marker on the corner minimap.** Wayfinder combines merchant/repair services into one icon per NPC, suppresses duplicate native and Questie service pins, and leaves quest and gathering tracking available. Existing addon service locations supply temporary replacements until Wayfinder has its own observation; these are never imported into saved locations. Service checkboxes in Blizzard's tracking selector and Wayfinder control the same categories. Disabling the overlay or reloading restores the latest choices to native tracking.
 - **Every icon type can be turned on or off.** Use the map button, the options panel, or `/wf show|hide <category>`.
 - **It gets you there.** A button returns the map to where you are. Middle-click anywhere (or on any icon) to drop a waypoint, and a floating arrow points the way.
 - **Addon icons keep zooming too.** Displayed Questie, RareScanner, SilverDragon and other map markers carry into the terrain detail view with their artwork and positions. Middle-click them on either view to navigate to their location. Their owning addon's filters still apply.
@@ -16,8 +22,9 @@ A world map addon for **WoW: Forever** (interface 16001, client 1.60.1).
 
 | Where | What |
 |---|---|
-| World map, fully zoomed in, scroll up | Opens the detail view at exactly what the map was showing |
-| Detail view | Scroll to zoom toward the cursor, drag to pan. Right-click, **Back to map**, or zoom all the way out to return. |
+| World map | Scroll to zoom toward the cursor, drag to pan continuously across zones and cities. Outdoor terrain blends in at close zoom. |
+| Left-click / right-click open map space | Zoom into the next map under the cursor / zoom out to its parent. Scrolling out also returns smoothly to the world view. |
+| Layer selector near Undercity | Swap between the underground city and overworld. The current layer appears inside the control. |
 | Map button (top-right of the map) | Turn icon types on or off, choose how unexplored terrain looks, open the detail view, open settings |
 | Shift + left-drag the map button | Move it away from other addons' buttons. The position is saved across reloads and logins. Reset it in the button's menu or under `/wf` → **World map → Map menu button → Reset position**. |
 | Locate button (top-left of the map, next to Blizzard's map pin button) | Switches the map to your zone and slides it to you. In the detail view it re-centres on you. |
@@ -50,15 +57,25 @@ Each tile is split into 16×16 cells of about 33 yards, and the cells you have e
 - **Hidden**: nothing is drawn, so the zone's normal map art shows through.
 - **Shown**: the real terrain at full brightness.
 
-The detail view is a separate frame laid over the map. Blizzard's map state is never modified, apart from panning it to where you were looking when you leave, so the addon does not taint the world map.
+The continuous map uses Blizzard's native canvas and data providers. The terrain layer follows that canvas's exact position and scale, while city artwork and native markers remain above it. Terrain starts fading in at about 2,500 yards across the view and becomes fully visible by 1,400 yards; the closest zoom remains 140 yards across. Once panning settles, the underlying map switches to the visible zone or city without moving the view. Undercity's underground layer uses its full native city artwork and keeps the surface minimap hidden until you choose the overworld.
 
-Other addons' displayed map markers are mirrored into the detail view and refreshed twice a second. Hover for the marker's name and middle-click to navigate; left-drag still pans. Marker coverage follows the world map opened underneath the detail view. Panning into another zone does not load that zone's addon markers until you return to the regular map and select it.
+At terrain zoom, Wayfinder carries services, waypoints and other addons' map markers into a screen-sized overlay above the terrain. The persistent markers take over drawing from the originals during this transition; zooming out restores the originals and their current alpha. Icons remain readable when the original canvas fades or scales them down; explicit owner visibility filters still apply. Duplicate quest and service markers at the same NPC combine, with quests above other icons. Tooltips and middle-click navigation remain available. Golden quest turn-ins retain their fallback above services. A separate detail view remains available when continuous mode is disabled under `/wf` (requires `/reload`).
+
+Service markers in the detail overlay share Wayfinder's icon size and Blizzard artwork, including services mirrored from other addons. Offscreen pins are rejected before zone and artwork lookups. Visible artwork is cached, so an idle map does not rebuild every marker or recull terrain. Native pin changes request an update on the next frame; a lightweight compatibility poll catches addons that change their own artwork or visibility. Large spatial queries visit occupied buckets instead of scanning empty continent-sized grids. When Questie has a draw backlog, requests in the visible area go first (quests before services); other requests retain their order, and Questie's minimap queue and draw budget remain unchanged.
+
+The detail overlay and corner minimap use the same service-location ordering and matching rules. Recorded locations are considered first, then temporary addon locations in a stable order. Only category copies at an identical source point combine beforehand, so a nearby intermediate point cannot swallow a distinct location. Different NPC IDs remain separate even when the NPCs stand close together.
+
+Startup imports and existing Questie icon discovery share a cooperative 1 ms work budget per rendered frame, checked between individual operations. Taxi-map queries run at most once per frame; repeated flight nodes and unchanged records do not trigger repeated redraws. The current zone's exploration imports first. Icon changes coalesce into one minimap refresh per frame, and nearby services and quest givers are queried through a spatial index. Existing pins remain visible while background discovery proceeds. Client API calls cannot be interrupted, so an individual slow API call can exceed the budget.
+
+For startup diagnostics, enable `/wf debug`, reload, and use `/wf debug timings` to see total and peak times for background slices, taxi API calls and minimap refreshes. Timings are collected only while debug is enabled and reset on reload. Use `/wf debug` again to turn diagnostics off.
+
+The corner minimap retains its 0.2-second live update interval. Unchanged icons keep their artwork and anchors, and quest readiness is checked once per quest/map batch rather than for every duplicate pooled pin. Blizzard tracking changes synchronize through events and hooks, with a two-second fallback for other addons that omit notifications. Quest, service and menu changes still request the next frame; native quest positions continue to be read live rather than cached across updates.
 
 ## Known limits
 
-- **OpenMap.** Wayfinder supports OpenMap's seamless world view (public API v2, tested against 0.5.0 beta). Locations and waypoints follow the visible zones across the stitched map. Middle-click places a Wayfinder waypoint, including on OpenMap icons; use either add-on's locate button to recenter. OpenMap controls scroll zoom while its seamless map is active. Open Wayfinder's **Open detail view** menu item to use its explored terrain view at the current location. Blizzard-only maps and sessions without OpenMap keep Wayfinder's normal scroll behavior.
+- **OpenMap.** With Wayfinder's continuous map enabled, Wayfinder takes control of the map for that session so two wheel/scroll controllers do not compete. OpenMap's saved settings are unchanged. You can disable OpenMap, or disable Wayfinder's continuous map and reload to use the older public-API compatibility mode with OpenMap 0.5.0-beta.
 
-- **Cities.** City maps don't zoom into the detail view: the minimap terrain under a city shows the ground outside it (inside Ironforge and Undercity, the ground above), not the city itself.
+- **Cities.** City artwork can be enlarged continuously; it is limited to the resolution Blizzard provides. Outdoor minimap textures supply the deeper terrain detail. The separate detail view used with continuous mode disabled still excludes cities.
 - **Mouseover positions** are only as good as the distance estimate until you get close or talk to the NPC.
 - **Testing.** Changes are checked against a model of the game's API (see `tests/`), built from Blizzard's UI source for build 70170, before they reach the client. If anything misbehaves in game, `/wf debug` turns on extra output.
 
@@ -85,6 +102,7 @@ Wayfinder is migrating to independently collected data. All existing built-in lo
 
 Wayfinder still includes material copied from these projects:
 
+- **[OpenMap](https://www.curseforge.com/wow/addons/openmap)** (0.5.0-beta, MIT code): the adapted continuous-map scroll controller and coordinate/layout routines. Copyright (c) 2026 OpenMap contributors; the original license is preserved in `Wayfinder/Vendor/OpenMap/LICENSE.txt`. Borrowed zone/city masks and their separate asset provenance are documented in `Wayfinder/Media/MapMasks/NOTICE.md`. No artist-drawn dungeon or gap artwork is included.
 - **[Carbonite All-in-One](https://github.com/IrcDirk/Carbonite-All-in-One-Retail-Classic)** (GPL-3.0):
   - The legacy built-in town service locations in `Data/Seed.lua`, originally converted from its Forever guide data by the generator shipped with Wayfinder 1.3.3.
   - Most boat, zeppelin, tram and portal positions in `Data/Transports.lua`, from its zone connections.

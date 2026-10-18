@@ -50,7 +50,10 @@ function Tooltip:Show(owner, rec, catID)
 end
 
 function ns:RemoveLocation(rec)
-	if rec.seed then
+	if rec.ephemeral then
+		self.db.hidden[rec.k] = true
+		self:Fire("POI_REMOVED", rec)
+	elseif rec.seed then
 		ns.Seeds:Hide(rec)
 	else
 		ns.Database:Remove(rec)
@@ -127,7 +130,8 @@ end
 function WayfinderMapPinMixin:OnAcquired(rec, catID, x, y)
 	self.rec, self.catID = rec, catID
 	-- the waypoint sits above everything else
-	self:UseFrameLevelType(rec.waypoint and "PIN_FRAME_LEVEL_WAYPOINT_LOCATION" or "PIN_FRAME_LEVEL_AREA_POI")
+	self:UseFrameLevelType(rec.waypoint and "PIN_FRAME_LEVEL_WAYPOINT_LOCATION"
+		or catID == "quest" and "PIN_FRAME_LEVEL_ACTIVE_QUEST" or "PIN_FRAME_LEVEL_AREA_POI")
 	local size = (rec.waypoint and 24 or 18) * (ns:GetSetting("iconScale") or 1)
 	self:SetSize(size, size)
 	ns.Categories:ApplyIcon(self.Icon, catID, rec)
@@ -170,7 +174,7 @@ end
 
 function provider:RefreshAllData()
 	self:RemoveAllData()
-	if not ns.db or not ns:GetSetting("showOnWorldMap") then
+	if not ns.db or not ns:GetSetting("showOnWorldMap") or ns.DetailView:IsFollowingMap() then
 		return
 	end
 	local map = self:GetMap()
@@ -214,13 +218,17 @@ function provider:RefreshAllData()
 	end
 end
 
+function MapPins:RefreshNow()
+	if WorldMapFrame then provider:RefreshAllData() end
+end
+
 function MapPins:Refresh()
 	if self.pending or not WorldMapFrame or not WorldMapFrame:IsShown() then
 		return
 	end
 	-- Coalesce bursts of updates (walking reveals cells every half second).
 	self.pending = true
-	C_Timer.After(0.25, function()
+	C_Timer.After(0, function()
 		self.pending = false
 		if WorldMapFrame:IsShown() then
 			provider:RefreshAllData()
@@ -245,4 +253,5 @@ function MapPins:OnLogin()
 	ns:On("EXPLORED", Refresh)
 	ns:On("WAYPOINT_CHANGED", Refresh)
 	ns:On("QUEST_AVAILABILITY_CHANGED", Refresh)
+	ns:On("MAP_LAYER_CHANGED", Refresh)
 end

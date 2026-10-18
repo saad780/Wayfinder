@@ -65,8 +65,10 @@ function Options:BuildPanel()
 	self.category = category
 
 	Header(layout, "Detail view")
+	Checkbox(category, "continuousMap", "Continuous world map (requires reload)",
+		"Pan and zoom smoothly across continents, zones and cities, down to minimap terrain. Works without OpenMap. Changes take effect after /reload.")
 	Checkbox(category, "detailEnabled", "Zoom past the map into minimap detail",
-		"When the world map is zoomed in all the way, scrolling in again opens the detail view: the minimap's own terrain for the places you have explored.")
+		"Blend into the minimap's own terrain as you zoom closer. With the continuous map disabled, scrolling past the normal map's limit opens the separate detail view.")
 	Dropdown(category, "unexploredTerrain", "Unexplored terrain",
 		"How the detail view draws terrain you have not explored yet.\n\nHidden: the zone's map art shows through.\nDarkened: the real terrain, dimmed.\nShown: the real terrain at full brightness.",
 		ns.UNEXPLORED_NAMES)
@@ -82,6 +84,11 @@ function Options:BuildPanel()
 		0, 300, 10, function(value)
 			return value == 0 and "Minimap" or ("%d yd"):format(value)
 		end)
+	Header(layout, "Live minimap")
+	Checkbox(category, "showMinimapServices", "Use Wayfinder service markers",
+		"Show one Wayfinder marker per nearby service NPC. Service checkboxes in Blizzard's minimap tracking menu and Wayfinder stay synchronized. Suppress duplicate service markers; quest markers and resource tracking remain available.")
+	Checkbox(category, "nativeMinimapTurnIns", "Prefer Blizzard's turn-in markers",
+		"Keep the game's quest turn-in tracking on the corner minimap and hide Questie's duplicate fixed turn-in pins. The game owns live NPC positions and its expected quest locations. World-map markers, quest pickups and objectives keep their existing behavior.")
 
 	Header(layout, "Waypoints")
 	Checkbox(category, "showArrow", "Show the waypoint arrow",
@@ -188,6 +195,7 @@ local function BuildMenu(_, root)
 	end
 	root:CreateDivider()
 	root:CreateButton("Open detail view", function()
+		if ns.ContinuousMap:ZoomToDetail() then return end
 		local opened, reason = ns.DetailView:EnterFromMap()
 		if not opened then
 			ns.Print(reason == "city" and "The detail view isn't available on city maps."

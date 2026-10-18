@@ -13,6 +13,7 @@ local SAME_SPOT_YARDS = 8     -- several spawns at one counter collapse into one
 local SUPERSEDE_YARDS = 25    -- a recorded location this close replaces a built-in one
 
 local buckets = {}
+local bucketCounts = {}
 local all = {}
 local supersedeVersion = 0
 
@@ -23,6 +24,15 @@ end
 local function Query(cont, minX, maxX, minY, maxY, fn)
 	local contBuckets = buckets[cont]
 	if not contBuckets then
+		return
+	end
+	local cells = (floor(maxX / GRID) - floor(minX / GRID) + 1) * (floor(maxY / GRID) - floor(minY / GRID) + 1)
+	if cells > (bucketCounts[cont] or 0) then
+		for _, bucket in pairs(contBuckets) do
+			for _, seed in ipairs(bucket) do
+				if seed.x >= minX and seed.x <= maxX and seed.y >= minY and seed.y <= maxY then fn(seed) end
+			end
+		end
 		return
 	end
 	for bx = floor(minX / GRID), floor(maxX / GRID) do
@@ -61,6 +71,7 @@ local function Add(seed)
 	if not bucket then
 		bucket = {}
 		contBuckets[key] = bucket
+		bucketCounts[seed.c] = (bucketCounts[seed.c] or 0) + 1
 	end
 	bucket[#bucket + 1] = seed
 	all[#all + 1] = seed
@@ -95,6 +106,7 @@ end
 
 function Seeds:Build()
 	wipe(buckets)
+	wipe(bucketCounts)
 	wipe(all)
 	local replacements, candidates, used = {}, {}, {}
 	local function Candidate(cat, map, x, y, faction, name, extra, aliases)

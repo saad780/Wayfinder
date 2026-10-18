@@ -128,12 +128,15 @@ ns.defaults = {
 	iconScale = 1.0,             -- world map icons
 	detailIconScale = 1.0,       -- detail view icons
 	detailEnabled = true,        -- zooming past the map's limit opens the detail view
+	continuousMap = true,        -- stitch world, zones and capitals into one scrollable map
 	unexploredTerrain = ns.UNEXPLORED_DARKENED, -- one of the UNEXPLORED_* modes above
 	unexploredBrightness = 0.4,  -- how bright darkened terrain is (0..1)
 	shareExploration = false,    -- combine exploration from all your characters
 	revealRadius = 0,            -- yards; 0 = whatever the minimap currently shows
 	importExploration = true,    -- seed exploration from the world map's discovered areas
 	showLiveQuests = true,       -- pickup and turn-in markers from the game in the detail view
+	nativeMinimapTurnIns = true, -- native live/fallback turn-ins instead of duplicate addon minimap pins
+	showMinimapServices = true,  -- Wayfinder owns service icons on the corner minimap
 	showArrow = true,            -- floating arrow pointing at the waypoint
 	arrowScale = 1.0,
 	clearOnArrival = true,       -- remove the waypoint once you reach it
@@ -368,6 +371,7 @@ local function HandleSlash(input)
 		ns.Exploration:QueueImportAll(true)
 		ns.Print("Re-importing explored areas from the world map in the background.")
 	elseif command == "debug" then
+		if rest == "timings" then ns.Background:PrintTimings(); return end
 		ns:SetSetting("debug", not ns:GetSetting("debug"))
 		ns.Print("Debug output " .. (ns:GetSetting("debug") and "on." or "off."))
 	elseif command == "reset" then

@@ -176,7 +176,7 @@ end
 local function NewRegion(kind, parent)
 	local r = setmetatable({ kind = kind, parent = parent, shown = true, w = 0, h = 0, scale = 1,
 		level = parent and (parent.level or 0) + 1 or 0, scripts = {}, points = {}, children = {} }, Region)
-	if parent and kind ~= "Texture" and kind ~= "FontString" then table.insert(parent.children, r) end
+	if parent and kind ~= "Texture" and kind ~= "FontString" and kind ~= "Line" then table.insert(parent.children, r) end
 	return r
 end
 
@@ -275,6 +275,16 @@ function Region:CreateTexture(name, layer, template, subLevel)
 	return t
 end
 function Region:CreateFontString() return NewRegion("FontString", self) end
+function Region:CreateLine(name, layer)
+	local line = NewRegion("Line", self)
+	line.layer = layer
+	self.lines = self.lines or {}
+	table.insert(self.lines, line)
+	return line
+end
+function Region:SetStartPoint(point, relative, x, y) self.start = { point, relative, x, y } end
+function Region:SetEndPoint(point, relative, x, y) self.finish = { point, relative, x, y } end
+function Region:SetThickness(value) self.thickness = value end
 
 function CreateFrame(kind, name, parent, template)
 	local f = NewRegion(kind, parent)
@@ -340,6 +350,13 @@ function mock.Advance(seconds, step)
 			if f.shown and f.scripts.OnUpdate then f.scripts.OnUpdate(f, step) end
 		end
 	end
+end
+function mock.DrainBackground(key)
+	for _=1,2000 do
+		if key and not Wayfinder.Background:Has(key) or not key and Wayfinder.Background:IsIdle() then return end
+		mock.Advance(0.02,0.02)
+	end
+	error("background job did not finish: " .. tostring(key))
 end
 
 ---------------------------------------------------------------------------

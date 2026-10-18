@@ -42,6 +42,7 @@ ns.HasBit = HasBit
 
 local mine          -- this character's [cont][tileKey] -> rows
 local unionCache = {} -- [cont][tileKey] -> rows across characters (shareExploration)
+local generation = 0
 
 function Exploration:OnLogin()
 	local all = ns.db.explored
@@ -67,6 +68,7 @@ function Exploration:OnLogin()
 end
 
 function Exploration:Reset()
+	generation = generation + 1
 	wipe(unionCache)
 	local key = ns:GetCharacterKey()
 	ns.db.explored[key] = {}
@@ -151,7 +153,7 @@ end
 ---------------------------------------------------------------------------
 local changed = {} -- scratch: tileKey -> true
 
-local function SetCell(cont, gx, gy)
+local function SetCell(cont, gx, gy, dirty)
 	local col, row = floor(gx / CELLS), floor(gy / CELLS)
 	local tileKey = col * 100 + row
 	local tiles = ns.TileData[cont]
@@ -173,7 +175,8 @@ local function SetCell(cont, gx, gy)
 	local value = rows[cy + 1]
 	if not HasBit(value, cx) then
 		rows[cy + 1] = value + POW[cx]
-		changed[tileKey] = true
+		local changes = dirty or changed
+		changes[tileKey] = true
 		local cache = unionCache[cont]
 		local cached = cache and cache[tileKey]
 		if cached then
@@ -184,13 +187,14 @@ local function SetCell(cont, gx, gy)
 	end
 end
 
-local function FlushChanged(cont)
-	if next(changed) then
+local function FlushChanged(cont, dirty)
+	dirty = dirty or changed
+	if next(dirty) then
 		local keys = {}
-		for tileKey in pairs(changed) do
+		for tileKey in pairs(dirty) do
 			keys[#keys + 1] = tileKey
 		end
-		wipe(changed)
+		wipe(dirty)
 		ns:Fire("EXPLORED", cont, keys)
 	end
 end
@@ -267,137 +271,94 @@ end
 ---------------------------------------------------------------------------
 -- Importing the world map's own exploration (runs in the background)
 ---------------------------------------------------------------------------
-local queue, queued = {}, {}
-local worker
-
-local function ZoneMapsWithTerrain()
-	local result = {}
-	local root = C_Map.GetFallbackWorldMapID and C_Map.GetFallbackWorldMapID() or 947
-	local children = C_Map.GetMapChildrenInfo(root, Enum.UIMapType.Zone, true) or {}
-	for _, info in ipairs(children) do
-		local rect = ns.GetMapRect(info.mapID)
-		if rect and ns.TileData[rect.cont] then
-			result[#result + 1] = info.mapID
-		end
-	end
-	return result
-end
-
-local function ImportMap(mapID)
+local function ImportMap(mapID, version, force)
 	local rect = ns.GetMapRect(mapID)
-	if not rect or not ns.TileData[rect.cont] or not C_MapExplorationInfo then
-		return
-	end
-	local cont = rect.cont
-	-- world box of the map -> plane box -> global cell range
+	if not rect or not ns.TileData[rect.cont] or not C_MapExplorationInfo then return false end
+	local cont, dirty = rect.cont, {}
 	local pxMin, pyMin = -rect.left, -rect.top
-	local pxMax, pyMax = pxMin + rect.width, pyMin + rect.height
 	local o = 32 * CELLS
-	local gx0, gx1 = floor(pxMin / CELL + o), floor(pxMax / CELL + o)
-	local gy0, gy1 = floor(pyMin / CELL + o), floor(pyMax / CELL + o)
-	local pos = CreateVector2D(0, 0)
+	local gx0, gx1 = floor(pxMin / CELL + o), floor((pxMin + rect.width) / CELL + o)
+	local gy0, gy1 = floor(pyMin / CELL + o), floor((pyMin + rect.height) / CELL + o)
+	local pos, steps = CreateVector2D(0, 0), 0
 	local tiles = ns.TileData[cont]
-	local steps = 0
 	for gy = max(gy0, 0), min(gy1, 64 * CELLS - 1) do
 		local py = (gy - o + 0.5) * CELL
-		local ny = (py - pyMin) / rect.height
-		local row = floor(gy / CELLS)
+		local ny, row = (py - pyMin) / rect.height, floor(gy / CELLS)
 		for gx = max(gx0, 0), min(gx1, 64 * CELLS - 1) do
+			if version ~= generation then return false end
+			if not force and not ns:GetSetting("importExploration") then FlushChanged(cont, dirty); return false end
 			local col = floor(gx / CELLS)
 			if tiles[col * 100 + row] then
-				local px = (gx - o + 0.5) * CELL
-				local nx = (px - pxMin) / rect.width
+				local nx = ((gx - o + 0.5) * CELL - pxMin) / rect.width
 				if nx >= 0 and nx <= 1 and ny >= 0 and ny <= 1 then
 					pos:SetXY(nx, ny)
 					local areas = C_MapExplorationInfo.GetExploredAreaIDsAtPosition(mapID, pos)
-					if areas and #areas > 0 then
-						SetCell(cont, gx, gy)
-					end
+					if areas and #areas > 0 then SetCell(cont, gx, gy, dirty) end
 				end
 			end
 			steps = steps + 1
-			if steps % 64 == 0 then
-				coroutine.yield()
-			end
+			-- Bound downstream notifications too. Live sampling has its own dirty
+			-- set, so it cannot flush a suspended import's cells as another continent.
+			if steps % 64 == 0 then FlushChanged(cont, dirty) end
+			coroutine.yield()
 		end
 	end
-	FlushChanged(cont)
+	FlushChanged(cont, dirty)
+	return true
 end
-
-local function RunQueue()
-	while #queue > 0 do
-		local mapID = table.remove(queue, 1)
-		queued[mapID] = nil
-		local imported = ns.db.imported[ns:GetCharacterKey()]
-		if not imported[mapID] then
-			ImportMap(mapID)
+local function Enqueue(mapID, force)
+	local imported = ns.db.imported[ns:GetCharacterKey()]
+	if imported[mapID] then return end
+	local version = generation
+	ns.Background:Queue("exploration " .. version .. ":" .. mapID, function()
+		if version ~= generation or imported[mapID] then return end
+		if ImportMap(mapID, version, force) then
 			imported[mapID] = true
 			ns.Debug("imported exploration for map", mapID)
 		end
-	end
+	end)
 end
-
-local function EnsureWorker()
-	if worker then
-		return
-	end
-	local co = coroutine.create(RunQueue)
-	worker = C_Timer.NewTicker(0.01, function()
-		local deadline = debugprofilestop() + 3 -- milliseconds per frame
-		while coroutine.status(co) ~= "dead" and debugprofilestop() < deadline do
-			local ok, err = coroutine.resume(co)
-			if not ok then
-				geterrorhandler()(err)
-				break
+function Exploration:QueueImportAll(force)
+	if not force and not ns:GetSetting("importExploration") then return end
+	if force then generation = generation + 1 end
+	local version = generation
+	ns.Background:Queue("exploration maps " .. version, function()
+		local root = C_Map.GetFallbackWorldMapID and C_Map.GetFallbackWorldMapID() or 947
+		local children = C_Map.GetMapChildrenInfo(root, Enum.UIMapType.Zone, true) or {}
+		local imported = ns.db.imported[ns:GetCharacterKey()]
+		local current = C_Map.GetBestMapForUnit("player")
+		for _=1,8 do
+			local info = current and C_Map.GetMapInfo(current)
+			if not info or info.mapType <= Enum.UIMapType.Zone then break end
+			current = info.parentMapID
+		end
+		if current then
+			if force then imported[current] = nil end
+			Enqueue(current, force)
+			while ns.Background:Has("exploration " .. version .. ":" .. current) do
+				if version ~= generation then return end
+				coroutine.yield("frame")
 			end
 		end
-		if coroutine.status(co) == "dead" then
-			worker:Cancel()
-			worker = nil
-			if #queue > 0 then
-				EnsureWorker()
+		for _, info in ipairs(children) do
+			if version ~= generation or (not force and not ns:GetSetting("importExploration")) then return end
+			if force and info.mapID ~= current then imported[info.mapID] = nil end
+			if not imported[info.mapID] then
+				local rect = ns.GetMapRect(info.mapID)
+				if rect and ns.TileData[rect.cont] then Enqueue(info.mapID, force) end
 			end
+			coroutine.yield()
 		end
 	end)
 end
-
-local function Enqueue(mapID, front)
-	if queued[mapID] then
-		return
-	end
-	queued[mapID] = true
-	if front then
-		table.insert(queue, 1, mapID)
-	else
-		queue[#queue + 1] = mapID
-	end
-	EnsureWorker()
-end
-
-function Exploration:QueueImportAll(force)
-	local imported = ns.db.imported[ns:GetCharacterKey()]
-	for _, mapID in ipairs(ZoneMapsWithTerrain()) do
-		if force then
-			imported[mapID] = nil
-		end
-		Enqueue(mapID, false)
-	end
-end
-
 function Exploration:QueueImportCurrentZone()
-	if not ns:GetSetting("importExploration") then
-		return
-	end
+	if not ns:GetSetting("importExploration") then return end
 	local mapID = C_Map.GetBestMapForUnit("player")
-	-- walk up to the zone level
-	while mapID do
+	for _ = 1, 8 do
+		if not mapID then break end
 		local info = C_Map.GetMapInfo(mapID)
-		if not info or info.mapType <= Enum.UIMapType.Zone then
-			break
-		end
+		if not info or info.mapType <= Enum.UIMapType.Zone then break end
 		mapID = info.parentMapID
 	end
-	if mapID then
-		Enqueue(mapID, true)
-	end
+	if mapID then Enqueue(mapID, false) end
 end

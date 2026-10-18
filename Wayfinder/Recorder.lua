@@ -495,39 +495,62 @@ end
 ---------------------------------------------------------------------------
 local FLIGHT_FACTION = { [0] = 0, [1] = 2, [2] = 1 } -- Enum.FlightPathFaction -> ours
 
-function Recorder:ImportKnownFlightPaths()
+function Recorder:ImportKnownFlightPaths(refresh)
 	if not (C_TaxiMap and C_TaxiMap.GetTaxiNodesForMap) then
 		return
 	end
-	local root = C_Map.GetFallbackWorldMapID and C_Map.GetFallbackWorldMapID() or 947
-	local maps = C_Map.GetMapChildrenInfo(root, Enum.UIMapType.Zone, true) or {}
-	for _, mapInfo in ipairs(maps) do
-		local ok, nodes = pcall(C_TaxiMap.GetTaxiNodesForMap, mapInfo.mapID)
-		if ok and type(nodes) == "table" then
-			for _, node in ipairs(nodes) do
-				if node.position then
-					local x, y = node.position:GetXY()
-					local cont, wx, wy = ns.MapToWorld(mapInfo.mapID, x, y)
-					if cont then
-						ns.Observations:Capture({ cats = { flight = true }, nodeID = node.nodeID,
-							name = node.name, faction = FLIGHT_FACTION[node.faction] or 0,
-							cont = cont, wx = wx, wy = wy, mapID = mapInfo.mapID, accuracy = 0 }, "taxi_api")
-						if not node.isUndiscovered then
-							ns.Database:RecordTaxi({
-								nodeID = node.nodeID,
-								name = node.name,
-								faction = FLIGHT_FACTION[node.faction] or 0,
-								cont = cont,
-								wx = wx,
-								wy = wy,
-								mapID = mapInfo.mapID,
-							})
+	if ns.Background:Has("flight import") then
+		-- An opened taxi map may reveal knowledge newer than the running scan.
+		if refresh then self.flightImportAgain = true end
+		return
+	end
+	ns.Background:Queue("flight import", function()
+		local current = C_Map.GetBestMapForUnit("player")
+		local root = C_Map.GetFallbackWorldMapID and C_Map.GetFallbackWorldMapID() or 947
+		local maps = C_Map.GetMapChildrenInfo(root, Enum.UIMapType.Zone, true) or {}
+		local ids, seenMaps, observed, recorded = {}, {}, {}, {}
+		if current then ids[1], seenMaps[current] = current, true end
+		for _, info in ipairs(maps) do
+			if not seenMaps[info.mapID] then ids[#ids+1], seenMaps[info.mapID] = info.mapID, true end
+			coroutine.yield()
+		end
+		for _, mapID in ipairs(ids) do
+			local started = ns.Background:Begin()
+			local ok, nodes = pcall(C_TaxiMap.GetTaxiNodesForMap, mapID)
+			ns.Background:Finish("taxi API", started)
+			-- No more taxi-map queries in this rendered frame, even if the API
+			-- itself exhausted the budget. Node processing is resumable too.
+			coroutine.yield("frame")
+			if ok and type(nodes) == "table" then
+				for _, node in ipairs(nodes) do
+					local id = node.nodeID
+					if ns.Readable(id) and type(id) == "number" and node.position then
+						local x, y = node.position:GetXY()
+						local cont, wx, wy = ns.MapToWorld(mapID, x, y)
+						if cont then
+							if not observed[id] then
+								observed[id] = true
+								ns.Observations:Capture({ cats = { flight = true }, nodeID = id,
+									name = node.name, faction = FLIGHT_FACTION[node.faction] or 0,
+									cont = cont, wx = wx, wy = wy, mapID = mapID, accuracy = 0 }, "taxi_api")
+							end
+							if node.isUndiscovered == false and not recorded[id] then
+								recorded[id] = true
+								ns.Database:RecordTaxi({ nodeID = id, name = node.name,
+									faction = FLIGHT_FACTION[node.faction] or 0,
+									cont = cont, wx = wx, wy = wy, mapID = mapID })
+							end
 						end
 					end
+					coroutine.yield()
 				end
 			end
 		end
-	end
+		if self.flightImportAgain then
+			self.flightImportAgain = nil
+			C_Timer.After(0, function() self:ImportKnownFlightPaths() end)
+		end
+	end)
 end
 
 ---------------------------------------------------------------------------
@@ -577,7 +600,7 @@ function Recorder:OnLogin()
 		end)
 	end
 	ns:RegisterEvent("TAXIMAP_OPENED", function()
-		C_Timer.After(0.5, function() self:ImportKnownFlightPaths() end)
+		C_Timer.After(0.5, function() self:ImportKnownFlightPaths(true) end)
 	end)
 	C_Timer.After(8, function()
 		self:ImportKnownFlightPaths()

@@ -1877,6 +1877,7 @@ test("undiscovered flight measurements do not become known flight records", func
 		return {}
 	end
 	ns.Recorder:ImportKnownFlightPaths()
+	mock.DrainBackground("flight import")
 	eq(count(ns.db.observations), 1, "undiscovered client node collected")
 	eq(ns.db.pois.t9988, nil, "not marked learned")
 	local _, o = next(ns.db.observations)

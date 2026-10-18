@@ -1,5 +1,5 @@
--- OpenMap's public API maps its stitched world to Blizzard's current canvas.
--- Keep Wayfinder's locations in world yards; never change OpenMap's saved data.
+-- Coordinate adapter shared by Wayfinder's continuous map and OpenMap's public
+-- API. Locations stay in world yards; neither adapter changes saved map data.
 local _, ns = ...
 local Compat = ns:NewModule("OpenMapCompat")
 local CONTINENTS = { 1415, 1414 }
@@ -10,7 +10,7 @@ local function Number(value)
 end
 
 function Compat:GetAPI()
-	local api = OpenMapAPI
+	local api = ns.ContinuousMap:IsActive() and ns.ContinuousMap.API or OpenMapAPI
 	if type(api) == "table" and api.major == 1 and type(api.IsStitched) == "function"
 		and api.IsStitched() then return api end
 end
@@ -80,6 +80,33 @@ function Compat:RaisePin(pin)
 	if Number(top) then pin:SetFrameLevel(math.min(9999, math.max(pin:GetFrameLevel(), top + 2))) end
 end
 
+-- Small world-space boxes for visibility tests, without resolving a zone for
+-- every icon. Useful before reading artwork or scheduling another addon's pins.
+function Compat:GetViewBoxes(padding)
+	local api = self:GetAPI()
+	if not api then return {} end
+	local map, boxes = WorldMapFrame, {}
+	local view = map.ScrollContainer:GetViewRect()
+	local w, h = view.right-view.left, view.bottom-view.top
+	padding = padding or 0
+	local u0,v0 = api.WorldFromMap(map:GetMapID(),view.left-w*padding,view.top-h*padding)
+	local u1,v1 = api.WorldFromMap(map:GetMapID(),view.right+w*padding,view.bottom+h*padding)
+	if not u0 or not u1 then return boxes end
+	for _, id in ipairs(CONTINENTS) do
+		local x0,y0 = api.MapFromWorld(id,u0,v0)
+		local x1,y1 = api.MapFromWorld(id,u1,v1)
+		if Number(x0) and Number(y0) and Number(x1) and Number(y1) then
+			x0,y0,x1,y1 = math.max(0,x0),math.max(0,y0),math.min(1,x1),math.min(1,y1)
+			if x0 <= x1 and y0 <= y1 then
+				local c,wx0,wy0 = ns.MapToWorld(id,x0,y0)
+				local _,wx1,wy1 = ns.MapToWorld(id,x1,y1)
+				if c then boxes[#boxes+1] = {cont=c,minX=wx1,maxX=wx0,minY=wy1,maxY=wy0} end
+			end
+		end
+	end
+	return boxes
+end
+
 -- Query both continents in the visible canvas rectangle, even when the host
 -- is Azeroth or a different zone. Positions outside 0..1 are valid here.
 function Compat:RefreshPins(map, add)
@@ -119,9 +146,9 @@ function Compat:RefreshPins(map, add)
 end
 
 function Compat:Install()
-	local api = OpenMapAPI
-	if self.installed or type(api) ~= "table" or api.major ~= 1 or not WorldMapFrame then return end
-	self.installed = true
+	local api = ns.ContinuousMap.started and ns.ContinuousMap.API or OpenMapAPI
+	if self.installed == api or type(api) ~= "table" or api.major ~= 1 or not WorldMapFrame then return end
+	self.installed = api
 	if api.RegisterCallback then
 		local function Refresh()
 			ns.MapPins:Refresh()
@@ -136,15 +163,18 @@ function Compat:Install()
 	-- waypoint gesture on the stitched canvas, before that recenter can move it.
 	-- Every other button and every non-stitched map uses the original scripts.
 	local container = WorldMapFrame.ScrollContainer
-	local original = container:GetScript("OnMouseUp")
-	container:SetScript("OnMouseUp", function(frame, button, ...)
-		if button == "MiddleButton" and self:IsActive() and not ns.DetailView:IsActive() then
-			local mapID, x, y = self:CursorPoint()
-			if mapID then ns.Navigation:SetWaypointOnMap(mapID, x, y) end
-			return
+	if container:GetScript("OnMouseUp") ~= self.mouseScript then
+		local original = container:GetScript("OnMouseUp")
+		self.mouseScript = function(frame, button, ...)
+			if button == "MiddleButton" and self:IsActive() and not ns.DetailView:IsActive() then
+				local mapID, x, y = self:CursorPoint()
+				if mapID then ns.Navigation:SetWaypointOnMap(mapID, x, y) end
+				return
+			end
+			if original then return original(frame, button, ...) end
 		end
-		if original then return original(frame, button, ...) end
-	end)
+		container:SetScript("OnMouseUp", self.mouseScript)
+	end
 	ns.MapPins:Refresh()
 end
 
