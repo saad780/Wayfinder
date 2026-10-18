@@ -134,6 +134,7 @@ function WayfinderMapPinMixin:OnAcquired(rec, catID, x, y)
 	ns.Categories:ApplyIcon(self.Highlight, catID, rec)
 	self.Icon:SetAlpha((not rec.seed and (rec.a or 0) > APPROXIMATE_YARDS) and 0.7 or 1)
 	self:SetPosition(x, y)
+	ns.OpenMapCompat:RaisePin(self)
 end
 
 function WayfinderMapPinMixin:OnMouseEnter()
@@ -173,6 +174,9 @@ function provider:RefreshAllData()
 		return
 	end
 	local map = self:GetMap()
+	if ns.OpenMapCompat:RefreshPins(map, function(rec, catID, x, y)
+		map:AcquirePin(PIN_TEMPLATE, rec, catID, x, y)
+	end) then return end
 	local mapID = map:GetMapID()
 	local info = mapID and C_Map.GetMapInfo(mapID)
 	if not info then

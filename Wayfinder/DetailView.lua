@@ -804,13 +804,21 @@ end
 ---------------------------------------------------------------------------
 -- Frames
 ---------------------------------------------------------------------------
+local function UpdateFrameLevel()
+	local container = WorldMapFrame:GetCanvasContainer()
+	local manager = WorldMapFrame.GetPinFrameLevelsManager and WorldMapFrame:GetPinFrameLevelsManager()
+	local topPinLevel = manager and manager.maxLevel or 3000
+	if ns.OpenMapCompat:IsActive() then
+		topPinLevel = max(topPinLevel, container:GetFrameLevel() + 8600)
+	end
+	view:SetFrameLevel(min(topPinLevel + 20, 9000))
+end
+
 local function CreateFrames()
 	local container = WorldMapFrame:GetCanvasContainer()
 	view = CreateFrame("Frame", "WayfinderDetailView", container)
 	view:SetAllPoints(container)
-	local manager = WorldMapFrame.GetPinFrameLevelsManager and WorldMapFrame:GetPinFrameLevelsManager()
-	local topPinLevel = manager and manager.maxLevel or 3000
-	view:SetFrameLevel(min(topPinLevel + 20, 9000))
+	UpdateFrameLevel()
 	view:SetClipsChildren(true)
 	view:EnableMouse(true)
 	view:EnableMouseWheel(true)
@@ -905,6 +913,11 @@ end
 -- Returns false plus a reason ("city" or "no terrain") when it can't open.
 function DetailView:EnterFromMap()
 	local mapID = WorldMapFrame:GetMapID()
+	local stitchedRect
+	if ns.OpenMapCompat:IsActive() then
+		mapID, stitchedRect = ns.OpenMapCompat:GetDetailMap()
+		if not mapID then return false, "no terrain" end
+	end
 	-- City maps are drawn for the city itself; the minimap terrain under them
 	-- shows the ground outside (or above) the city, so there's no zooming in.
 	if ns.IsCityMap(mapID) then
@@ -921,16 +934,17 @@ function DetailView:EnterFromMap()
 	if not view then
 		CreateFrames()
 	end
+	UpdateFrameLevel()
 	view:Show()
 
-	local viewRect = WorldMapFrame.ScrollContainer:GetViewRect()
+	local viewRect = stitchedRect or WorldMapFrame.ScrollContainer:GetViewRect()
 	local left = -rect.left + viewRect.left * rect.width
 	local right = -rect.left + viewRect.right * rect.width
 	local top = -rect.top + viewRect.top * rect.height
 	local bottom = -rect.top + viewRect.bottom * rect.height
 
 	cont = rect.cont
-	originMapID = mapID
+	originMapID = WorldMapFrame:GetMapID()
 	local w = WorldMapFrame.ScrollContainer:GetWidth()
 	scale = w / max(right - left, 1)
 	cx, cy = (left + right) / 2, (top + bottom) / 2
@@ -986,7 +1000,8 @@ function DetailView:Exit(skipPan)
 	GameTooltip:Hide()
 
 	-- Put Blizzard's map where the detail view was looking, if it is still the same map.
-	if not skipPan and WorldMapFrame:IsShown() and WorldMapFrame:GetMapID() == originMapID then
+	if not skipPan and not ns.OpenMapCompat:IsActive()
+		and WorldMapFrame:IsShown() and WorldMapFrame:GetMapID() == originMapID then
 		local moved = abs(cx - (self.entryX or cx)) + abs(cy - (self.entryY or cy))
 		local rect = ns.GetMapRect(originMapID)
 		if rect and moved > 1 then
@@ -1014,7 +1029,7 @@ function DetailView:HookWorldMap()
 	end)
 	container:HookScript("OnMouseWheel", function(_, delta)
 		-- Blizzard zoomed during this same event: not at the limit yet.
-		if delta <= 0 or active or GetTime() == lastScaleChange then
+		if delta <= 0 or active or ns.OpenMapCompat:IsActive() or GetTime() == lastScaleChange then
 			return
 		end
 		if ns:GetSetting("detailEnabled") and container:IsAtMaxZoom() then

@@ -54,6 +54,8 @@ Other addons' displayed map markers are mirrored into the detail view and refres
 
 ## Known limits
 
+- **OpenMap.** Wayfinder supports OpenMap's seamless world view (public API v2, tested against 0.5.0 beta). Locations and waypoints follow the visible zones across the stitched map. Middle-click places a Wayfinder waypoint, including on OpenMap icons; use either add-on's locate button to recenter. OpenMap controls scroll zoom while its seamless map is active. Open Wayfinder's **Open detail view** menu item to use its explored terrain view at the current location. Blizzard-only maps and sessions without OpenMap keep Wayfinder's normal scroll behavior.
+
 - **Cities.** City maps don't zoom into the detail view: the minimap terrain under a city shows the ground outside it (inside Ironforge and Undercity, the ground above), not the city itself.
 - **Mouseover positions** are only as good as the distance estimate until you get close or talk to the NPC.
 - **Testing.** Changes are checked against a model of the game's API (see `tests/`), built from Blizzard's UI source for build 70170, before they reach the client. If anything misbehaves in game, `/wf debug` turns on extra output.

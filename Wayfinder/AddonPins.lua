@@ -42,6 +42,14 @@ local function ReadPin(frame)
 		x, y = frame:GetPosition()
 		local map = frame:GetMap()
 		if map and map.GetMapID then mapID = map:GetMapID() end
+		if ns.OpenMapCompat:IsActive() then
+			mapID, x, y = ns.OpenMapCompat:CanvasPoint(x, y)
+		end
+	end
+	-- OpenMap's own pins live in clipped cells over the scroll container,
+	-- positioned in its stitched world instead of a MapCanvas pin template.
+	if frame.anchor and frame.look and Number(frame.u) and Number(frame.v) then
+		mapID, x, y = ns.OpenMapCompat:MapPoint(frame.u, frame.v)
 	end
 	-- RareScanner and SilverDragon also have their own canvas/pin pools.
 	if not Number(x) or not Number(y) then
