@@ -36,9 +36,9 @@ end
 function Mini:IndexFrame(frame, state)
 	local data, tag = frame.data, frame.wayfinderServiceTag
 	local kind
-	if frame.miniMapIcon == true and type(data) == "table" then
+	if type(frame.miniMapIcon) == "boolean" and type(data) == "table" then
 		if frame.isManualIcon and tag and tag.data == data then kind = "service"
-		elseif data.Type == "complete" or data.Type == "available" then kind = "quest" end
+		elseif frame.miniMapIcon and (data.Type == "complete" or data.Type == "available") then kind = "quest" end
 	end
 	completeFrames[frame] = frame.miniMapIcon == true and type(data) == "table" and data.Type == "complete" or nil
 	unlocated[frame] = nil
@@ -60,6 +60,12 @@ function Mini:IndexFrame(frame, state)
 	state.bucket, state.key, state.kind, state.cont, state.x, state.y = bucket, key, kind, c, x, y
 	state.map, state.nx, state.ny, state.sourceData = frame.UiMapID, frame.x, frame.y, data
 	if ns.MinimapServices then ns.MinimapServices:RequestUpdate() end
+	self:SourcesChanged()
+end
+function Mini:SourcesChanged()
+	if self.sourcesPending then return end
+	self.sourcesPending = true
+	C_Timer.After(0,function() self.sourcesPending=nil; ns:Fire("SERVICE_SOURCES_CHANGED") end)
 end
 local function Query(cont, minX, maxX, minY, maxY, callback)
 	-- Normally QueueDraw supplies coordinates before indexing. This small set
@@ -131,6 +137,7 @@ function Mini:TagFrame(frame, typ, id)
 	local tag = frame.wayfinderServiceTag
 	if not tag or tag.data ~= frame.data or tag.cat ~= cat or tag.cls ~= cls then
 		frame.wayfinderServiceTag = cat and {data=frame.data,cat=cat,cls=cls} or nil
+		self:SourcesChanged()
 	end
 	self:ObserveFrame(frame)
 	if observed[frame] then self:RefreshFrame(frame,observed[frame]) end
@@ -147,13 +154,25 @@ function Mini:ObserveManualFrames(map, typ, id, tailOnly)
 	manualLists[list] = {count=count,last=list[count]}
 end
 -- Temporary positions remain owned by Questie and are never written to saves.
+function Mini:ServiceAllowed(frame, state)
+	local private = self.installed and self.installed.private
+	if private and private.ShouldBeHidden == state.original and Questie and Questie.db then
+		-- Questie's quest predicate explicitly does not support manual icons:
+		-- it treats the NPC ID as a quest ID and can hide legitimate merchants.
+		local profile = Questie.db.profile
+		return profile and profile.enabled ~= false and
+			(frame.miniMapIcon and profile.enableMiniMapIcons ~= false or not frame.miniMapIcon and profile.enableMapIcons ~= false)
+			and (not frame.hidden or state.owned)
+	end
+	local ok, filtered = pcall(state.original, frame)
+	return ok and not filtered
+end
 function Mini:QueryServices(cont, minX, maxX, minY, maxY, callback)
 	local locations = {}
 	Query(cont,minX,maxX,minY,maxY,function(frame,state)
 		local tag = frame.wayfinderServiceTag
-		if state.kind ~= "service" or not tag or tag.data ~= frame.data or not frame.isManualIcon or frame.miniMapIcon ~= true then return end
-		local ok, filtered = pcall(state.original, frame)
-		if not ok or filtered then return end
+		if state.kind ~= "service" or not tag or tag.data ~= frame.data or not frame.isManualIcon then return end
+		if not self:ServiceAllowed(frame,state) then return end
 		local x,y = state.x,state.y
 		local id, rec = frame.data.id or frame.data.Id
 		if not ns.Readable(id) then id = nil end
@@ -167,6 +186,9 @@ function Mini:QueryServices(cont, minX, maxX, minY, maxY, callback)
 			locations[#locations+1]=rec
 		end
 		rec.cats[tag.cat]=true
+		if tag.cat == "repair" or tag.cat == "food" or tag.cat == "reagent" or tag.cat == "ammo" or tag.cat == "poison" then
+			rec.cats.vendor = true
+		end
 	end)
 	for _,rec in ipairs(locations) do if not ns.db.hidden[rec.k] then callback(rec) end end
 end
@@ -209,6 +231,7 @@ function Mini:ObserveFrame(frame)
 					completeFrames[owner],unlocated[owner],state.owned=nil,nil,nil
 					owner.wayfinderServiceTag=nil
 					if ns.MinimapServices then ns.MinimapServices:RequestUpdate() end
+					self:SourcesChanged()
 				end
 			end)
 		end

@@ -241,12 +241,9 @@ function S.SetView(u, v, hu, hv, _, stepZoom)
 	viewU, viewV, halfU, halfV, zoom = u, v, hu, hv, stepZoom
 	UpdateUndergroundContext()
 	S.Recull()
-	-- The minimap contains the Ruins/surface here. Default to the full native
-	-- Undercity plan, without a mask that can let the surface show through.
-	if undergroundContext and not showSurface then
-		if ns.DetailView:IsFollowingMap() then ns.DetailView:Exit(true) end
-		return
-	end
+	-- Underground artwork replaces the surface tiles, but keeps the same
+	-- marker layer. Exiting DetailView here also removed all persistent pins.
+	local pinsOnly = undergroundContext and not showSurface
 	local id = S.ContinentAt(u, v)
 	local rect = id and ns.GetMapRect(id)
 	local l, r, t, b
@@ -255,13 +252,13 @@ function S.SetView(u, v, hu, hv, _, stepZoom)
 		local x, y = (u - l) / (r - l), (v - t) / (b - t)
 		local span = hu * 2 / (r - l) * rect.width
 		local height = hv * 2 / (b - t) * rect.height
-		local alpha = 1 - Smooth(TERRAIN_FULL, TERRAIN_FROM, span)
+		local alpha = pinsOnly and 1 or 1 - Smooth(TERRAIN_FULL, TERRAIN_FROM, span)
 		if alpha > 0 then
 			local fl = WorldMapFrame:GetPinFrameLevelsManager()
 			local questLevel = math.min(8000, math.max(S.artTop + 5, (fl.maxLevel or 3000) + 10))
 			ns.DetailView:FollowMap(rect.cont, rect.top - y * rect.height, rect.left - x * rect.width,
 				WorldMapFrame.ScrollContainer:GetWidth() / span, alpha, S.terrainLevel, questLevel,
-				WorldMapFrame.ScrollContainer:GetHeight() / height)
+				WorldMapFrame.ScrollContainer:GetHeight() / height, pinsOnly)
 			return
 		end
 	end

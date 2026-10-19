@@ -13,11 +13,13 @@ local function near(a,b) assert(math.abs(a-b)<0.00001, tostring(a).." != "..tost
 Minimap = CreateFrame("Frame", nil, UIParent)
 Minimap:SetSize(200,200)
 local filters = { Enum.MinimapTrackingFilter.Banker, Enum.MinimapTrackingFilter.Repair, 90000001, 90000002 }
-local active = {true,true,true,true}
+-- Exercise Wayfinder's fallback renderer when the client cannot enable repair
+-- tracking. Successful native rendering/menu handoff has its own suite.
+local active = {true,false,true,true}
 C_Minimap.GetNumTrackingTypes = function() return 4 end
 C_Minimap.GetTrackingFilter = function(i) return {filterID=filters[i]} end
 C_Minimap.GetTrackingInfo = function(i) return {active=active[i],name=({"Bankers","Repair","Quest turn-ins","Find Minerals"})[i]} end
-C_Minimap.SetTracking = function(i,value) active[i]=value end
+C_Minimap.SetTracking = function(i,value) if i~=2 or not value then active[i]=value end end
 mock.playerMap,mock.playerX,mock.playerY = 1429,0.8,0.8
 local cont,wx,wy = ns.MapToWorld(1429,0.8,0.8)
 local function Find(rec)
@@ -37,8 +39,8 @@ test("a merchant who repairs receives one Wayfinder minimap marker", function()
 	near(pins[1].points.CENTER[3],10/120*100)
 	near(pins[1].points.CENTER[4],12/120*100)
 end)
-test("native service duplicates are disabled while quest and gathering tracking stay enabled", function()
-	assert(active[1]==false and active[2]==false,"duplicate native services suppressed")
+test("native services remain enabled and unavailable native tracking receives a fallback", function()
+	assert(active[1]==true and active[2]==false,"bank remains native while the unsupported repair switch stays off")
 	assert(active[3] and active[4],"native quest movement and minerals untouched")
 end)
 test("minimap rotation and middle-click use the NPC position", function()
@@ -75,7 +77,7 @@ test("disabling Wayfinder services restores native tracking and hides its own pi
 	ns:SetSetting("showMinimapServices",false)
 	Mini:Update()
 	assert(not Mini:IsActive() and #Find(rec)==0)
-	assert(active[1] and active[2] and active[3] and active[4],"original native preferences restored")
+	assert(active[1] and not active[2] and active[3] and active[4],"latest native preferences restored where the API supports them")
 end)
 test("unrecorded visible merchant/repair locations get one temporary Wayfinder replacement", function()
 	ns:SetSetting("showMinimapServices",true)
@@ -136,7 +138,7 @@ test("available quest markers take precedence over the same NPC's minimap servic
 	rec.cats.quest=true
 	ns.QuestAvailability:Observe(rec,{{questID=id}},true)
 	Mini:Update()
-	assert(#Find(rec)==0,"verified available quest wins over merchant/repair")
+	assert(#Find(rec)==1 and Find(rec)[1].catID=="quest","verified pickup retains a fallback when native tracking supplies no location")
 	ns.QuestAvailability:Observe(rec,{},true)
 	local x,y=ns.WorldToMapRect(ns.GetMapRect(1429),rec.x,rec.y)
 	local frame=CreateFrame("Frame",nil,Minimap)

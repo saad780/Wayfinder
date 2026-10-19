@@ -60,7 +60,7 @@ test("idle markers retain artwork and anchors while the live poll keeps its cade
 	local started=os.clock();mock.Advance(10,.01);local ms=(os.clock()-started)*1000
 	measured={};for k,v in pairs(calls) do measured[k]=v end
 	assert(calls.art==0 and calls.position==0,"unchanged pins cause no texture or anchor writes")
-	assert(calls.rebuild>=40,"movement and native markers still poll at the existing 0.2-second cadence")
+	assert(calls.rebuild>=40,"native quest and service data still refresh at the existing 0.2-second cadence")
 	for _,rec in ipairs(merchants) do assert(Find(rec),"all three merchants remain usable") end
 	io.write(("        10s idle stress: %d readiness checks, %d tracking reads, %d artwork writes, %d anchor writes; %.1f ms mock CPU\n"):format(calls.ready,calls.tracking,calls.art,calls.position,ms))
 end)
@@ -74,14 +74,14 @@ end)
 test("tracking checks are event driven with a low-cost compatibility fallback",function()
 	assert(measured.tracking<30 and measured.filter<30,"idle tracking is not enumerated five times per second")
 	local before=calls.tracking
-	active[1]=true;mock.Fire("MINIMAP_UPDATE_TRACKING")
-	assert(not active[1] and calls.tracking>before,"native tracking events synchronize immediately")
+	active[1]=true;mock.Fire("MINIMAP_UPDATE_TRACKING");mock.Advance(.03,.01)
+	assert(active[1] and calls.tracking>before,"native service selections stay enabled after their event")
 	C_Minimap.SetTracking(2,true)
 	assert(ns:IsCategoryEnabled("repair"),"external native checkbox edits update Wayfinder immediately")
 	mock.Advance(.03,.01)
-	assert(not active[2],"duplicate native icon remains suppressed on the next frame")
-	active[2]=true;mock.Advance(2.2,.01)
-	assert(not active[2],"fallback catches owners which fail to signal an event")
+	assert(active[2],"native service blips remain enabled on the next frame")
+	active[2]=false;mock.Advance(2.2,.01)
+	assert(active[2],"compatibility fallback retains the selected native category")
 end)
 
 test("movement, rotation and zoom still reposition minimap pins at the normal cadence",function()
@@ -106,8 +106,10 @@ test("category changes hide and restore cached pins and refresh changed artwork"
 	ResetCounts()
 	ns.Database:RecordNPC({npcID=rec.id,name=rec.n,cats={repair=true},cont=rec.c,wx=rec.x,wy=rec.y,mapID=rec.m,accuracy=1})
 	mock.Advance(.03,.01)
-	local pin=assert(Find(rec))
-	assert(pin.catID=="repair" and calls.art==1,"new service artwork is applied without repainting every merchant")
+	assert(not Find(rec) and active[2],"native repair blip replaces the custom marker without duplicate artwork")
+	rec.cats.repair=nil
+	ns:Fire("POI_UPDATED",rec);mock.Advance(.03,.01)
+	assert(Find(rec),"custom vendor marker returns when native tracking cannot represent the service")
 end)
 
 test("quest changes restore and suppress fixed fallbacks without delaying native tracking",function()

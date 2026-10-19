@@ -1,4 +1,4 @@
-"""Render Wayfinder's compass from project-defined geometry, without source images.
+"""Render Wayfinder's standalone arrow from geometry, without source images.
 
 python tools/make_arrow.py
 python tools/make_arrow.py --preview <directory>
@@ -9,7 +9,7 @@ camera and light project its raised facets and shadow into 128 directional frame
 import argparse
 import math
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 OUT = Path(__file__).resolve().parents[1] / "Wayfinder/Media/Arrow"
 FRAME = 128
@@ -51,14 +51,14 @@ def shade(vertices, base):
 
 def needle(angle):
     # Long directional tip, short counterweight, raised ridge and bevel walls.
-    rim = [(0, 43, 4), (10, 0, 4), (0, -23, 4), (-10, 0, 4)]
+    rim = [(0, 43, 4), (16, 0, 4), (0, -23, 4), (-16, 0, 4)]
     ridge = (0, 2, 12)
     rim = [yaw(p, angle) for p in rim]
     ridge = yaw(ridge, angle)
     image = Image.new("RGBA", (FRAME * SS, FRAME * SS))
     shadow = Image.new("RGBA", image.size)
     shadow_draw = ImageDraw.Draw(shadow)
-    # Project along a fixed light ray onto the compass plane.
+    # A subtle cast shadow reinforces depth without a solid backing.
     shadow_points = []
     for x, y, z in rim:
         shadow_points.append(project((x - LIGHT[0] / LIGHT[2] * z,
@@ -88,32 +88,6 @@ def needle(angle):
     return image.resize((FRAME, FRAME), Image.Resampling.LANCZOS)
 
 
-def compass_base():
-    image = Image.new("RGBA", (FRAME * SS, FRAME * SS))
-    draw = ImageDraw.Draw(image)
-
-    def ellipse(box, **kwargs):
-        draw.ellipse([round(v * SS) for v in box], **kwargs)
-
-    # Elliptical housing: front lip, inset slate face, brushed-metal top edge.
-    ellipse((6, 30, 122, 112), fill=(7, 12, 18, 220))
-    ellipse((6, 27, 122, 109), fill=(38, 51, 61, 255))
-    ellipse((9, 30, 119, 106), fill=(65, 81, 91, 255))
-    ellipse((12, 33, 116, 103), fill=(15, 24, 31, 255))
-    ellipse((18, 37, 110, 99), outline=(43, 59, 68, 255), width=SS)
-    for i in range(32):
-        angle = i * math.tau / 32
-        outer = project((-49 * math.sin(angle), -49 * math.cos(angle), 0))
-        inner_radius = 41 if i % 8 == 0 else 45
-        inner = project((-inner_radius * math.sin(angle), -inner_radius * math.cos(angle), 0))
-        color = (112, 204, 224, 255) if i % 8 == 0 else (75, 96, 106, 255)
-        draw.line([(round(x * SS), round(y * SS)) for x, y in (outer, inner)], fill=color,
-                  width=(2 if i % 8 == 0 else 1) * SS)
-    # A tiny pivot is visible where the shorter tail meets the needle ridge.
-    ellipse((61, 65, 67, 71), fill=(76, 91, 101, 255))
-    return image.resize((FRAME, FRAME), Image.Resampling.LANCZOS)
-
-
 def generate(output=OUT):
     output.mkdir(parents=True, exist_ok=True)
     atlas = Image.new("RGBA", (FRAME * COLUMNS, FRAME * ROWS))
@@ -121,46 +95,45 @@ def generate(output=OUT):
         atlas.paste(needle(index * math.tau / COUNT), ((index % COLUMNS) * FRAME, (index // COLUMNS) * FRAME))
     # Match the uncompressed 32-bit TGA format already used by the addon.
     atlas.save(output / "NeedleAtlas.tga")
-    compass_base().save(output / "CompassBase.tga")
-    print(f"wrote {output.name}/NeedleAtlas.tga ({atlas.width}x{atlas.height}, {COUNT} headings) and CompassBase.tga")
+    print(f"wrote {output.name}/NeedleAtlas.tga ({atlas.width}x{atlas.height}, {COUNT} headings)")
+
+
+def tinted_needle(angle, near=False):
+    head = needle(angle)
+    tint = (.45, .92, .45) if near else (.35, .84, 1)
+    channels = head.split()
+    return Image.merge("RGBA", tuple(channels[j].point(lambda v, t=tint[j]: round(v * t))
+                                     for j in range(3)) + (channels[3],))
+
+
+def preview_hud(angle, near=False):
+    # Match the runtime's 110x94 widget, 80x62 hub, and 100px texture.
+    hud = Image.new("RGBA", (110, 94))
+    hud.alpha_composite(tinted_needle(angle, near).resize((100, 100), Image.Resampling.LANCZOS), (5, -19))
+    draw = ImageDraw.Draw(hud)
+    font_path = Path("C:/Windows/Fonts/segoeui.ttf")
+    large = ImageFont.truetype(str(font_path), 14) if font_path.exists() else ImageFont.load_default()
+    small = ImageFont.truetype(str(font_path), 10) if font_path.exists() else ImageFont.load_default()
+    for text, y, font, color in (("30 yd" if near else "100 yd", 63, large,
+                                   (114, 234, 114) if near else (90, 215, 255)),
+                                  ("Waypoint", 81, small, (235, 235, 235))):
+        draw.text((56, y + 1), text, font=font, anchor="mt", fill=(0, 0, 0, 255))
+        draw.text((55, y), text, font=font, anchor="mt", fill=color)
+    return hud
 
 
 def preview(output):
     output.mkdir(parents=True, exist_ok=True)
     headings = [("Ahead", 0), ("Left", math.pi / 2), ("Behind", math.pi), ("Right", 3 * math.pi / 2),
                 ("Ahead-left", math.pi / 4), ("Ahead-right", 7 * math.pi / 4)]
-    sheet = Image.new("RGB", (6 * 200, 244), (20, 25, 31))
+    sheet = Image.new("RGB", (6 * 200, 220), (20, 25, 31))
     draw = ImageDraw.Draw(sheet)
     for i, (label, angle) in enumerate(headings):
-        composed = compass_base()
-        head = needle(angle)
-        # Match Lua vertex tint: far cyan and near green.
-        tint = (.45, .92, .45) if label == "Behind" else (.35, .84, 1)
-        channels = head.split()
-        tinted = Image.merge("RGBA", tuple(channels[j].point(lambda value, t=tint[j]: round(value * t))
-                                          for j in range(3)) + (channels[3],))
-        composed.alpha_composite(tinted)
         draw.text((i * 200 + 12, 10), label, fill="white")
-        enlarged = composed.resize((192, 192), Image.Resampling.LANCZOS)
-        sheet.paste(enlarged, (i * 200 + 4, 24), enlarged)
-        draw.rounded_rectangle((i * 200 + 12, 190, i * 200 + 188, 234), 5, fill=(10, 17, 23), outline=(54, 95, 113))
-        draw.text((i * 200 + 72, 196), "30 yd" if label == "Behind" else "100 yd", fill=(114, 234, 114) if label == "Behind" else (90, 215, 255))
-        draw.text((i * 200 + 66, 216), "Waypoint", fill=(205, 218, 224))
-    sheet.save(output / "compass-preview.png")
-    # Native-size reference for legibility at the default in-game scale.
-    hud = Image.new("RGBA", (130, 128), (20, 25, 31, 255))
-    art = compass_base()
-    head = needle(math.pi / 4)
-    rgb = head.split()
-    head = Image.merge("RGBA", tuple(rgb[j].point(lambda v, t=(.35, .84, 1)[j]: round(v * t)) for j in range(3)) + (rgb[3],))
-    art.alpha_composite(head)
-    art = art.resize((100, 100), Image.Resampling.LANCZOS)
-    hud.alpha_composite(art, (15, -5))
-    d = ImageDraw.Draw(hud)
-    d.rectangle((3, 90, 127, 126), fill=(8, 15, 20), outline=(45, 96, 115))
-    d.text((48, 93), "100 yd", fill=(90, 215, 255))
-    d.text((38, 112), "Waypoint", fill=(205, 218, 224))
-    hud.save(output / "compass-native.png")
+        hud = preview_hud(angle, label == "Behind").resize((198, 169), Image.Resampling.LANCZOS)
+        sheet.paste(hud, (i * 200 + 1, 35), hud)
+    sheet.save(output / "arrow-preview.png")
+    preview_hud(math.pi / 4).save(output / "arrow-native.png")
     print(f"previews: {output}")
 
 

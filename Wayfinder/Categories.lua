@@ -63,7 +63,7 @@ function Categories:ResolveIcons()
 	local trackingTextures = {}
 	if C_Minimap and C_Minimap.GetNumTrackingTypes then
 		for index = 1, C_Minimap.GetNumTrackingTypes() do
-			local filter = C_Minimap.GetTrackingFilter(index)
+			local filter = C_Minimap.GetTrackingFilter and C_Minimap.GetTrackingFilter(index)
 			local info = C_Minimap.GetTrackingInfo(index)
 			if filter and filter.filterID and info and info.texture then
 				trackingTextures[filter.filterID] = info.texture

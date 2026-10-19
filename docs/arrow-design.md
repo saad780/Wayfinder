@@ -1,10 +1,16 @@
-# Wayfinder compass, version 1.3.5
+# Wayfinder waypoint arrow, version 1.4.9
 
-The waypoint indicator uses a raised, beveled needle over an elliptical charcoal
-compass base. The longer cyan tip indicates the waypoint; its shorter, darker
-tail is a counterweight. The needle and distance turn green inside 40 yards.
+The waypoint indicator is a standalone raised, beveled arrow with a longer cyan
+point and shorter, darker counterweight. Its diamond-shaped body is 60% wider
+than the previous needle, with the same length, perspective, ridge and lighting.
+The arrow and distance turn green inside 40 yards.
 
-![Directional artwork preview](compass-preview.png)
+The compass housing and opaque readout plate have been removed. Small distance
+and waypoint-name text have a dark shadow for legibility over the world. The
+widget occupies 110x94 UI units instead of 130x128, reducing the drag/click area
+by about 38%. Saved position and scale still apply.
+
+![Directional artwork preview](arrow-preview.png)
 
 This is a generated artwork preview, not an in-game screenshot.
 
@@ -15,11 +21,11 @@ light, and shadow. It draws all geometry procedurally, without loading source
 artwork. A fixed orthographic camera at 42 degrees projects the model, and a
 fixed light shades its faces while the needle yaws counterclockwise from forward.
 
-128 frames of 128×128 pixels are packed into a 16-column, 8-row, 2048×1024 atlas.
-Both this atlas and the 128×128 compass base are uncompressed 32-bit TGA files,
-matching the format already used by Wayfinder. Transparent gutters prevent
-neighboring frames from bleeding when textures are filtered. Atlas texture memory
-is approximately 8 MiB; the game does not need to render a mesh each update.
+128 frames of 128x128 pixels are packed into a 16-column, 8-row, 2048x1024 atlas.
+The atlas is an uncompressed 32-bit TGA file, matching the format already used
+by Wayfinder. Transparent gutters prevent neighboring frames from bleeding when
+textures are filtered. Atlas texture memory is approximately 8 MiB; the game does
+not need to render a mesh each update. No compass-base texture is used.
 
 Runtime bearing is `atan2(waypointWest - playerWest, waypointNorth - playerNorth)`
 minus player facing. Frame 0 is ahead, 32 left, 64 behind, and 96 right. The nearest
@@ -37,10 +43,11 @@ The compact readout and pointer retain saved position, scale, dragging, tooltip,
 right-click removal, waypoint sharing, arrival clearing, and unavailable-position
 or other-continent messages.
 
-Clients already running during installation may require a full restart to discover
-new textures. If the atlas cannot load, Wayfinder temporarily uses its existing
-simple player-pointer artwork with the same bearing calculation and prints a
-restart instruction.
+Clients already running during installation may retain cached texture pixels.
+Reloading removes the housing immediately; restart the game if the wider arrow
+artwork has not refreshed. If the atlas cannot load, Wayfinder temporarily uses
+its existing simple player-pointer artwork with the same bearing calculation
+and prints a restart instruction.
 
 ## Audit and provenance
 
@@ -52,8 +59,9 @@ world coordinates; Buddies used normalized map positions and map dimensions.
 
 Those differences establish that the files and implementations were not identical;
 they do not by themselves prove independent design history. The gold circular
-arrow and distance plate were visually similar, so this release replaces that
+arrow and distance plate were visually similar, so version 1.3.5 replaced that
 presentation with newly defined geometry, new artwork, and a different layout.
+Version 1.4.9 widens that same arrow and removes the compass housing.
 
 No permissively licensed upstream origin for Buddies' arrow was identified in
 the inspected package. Its optional TomTom integration forwards waypoints and

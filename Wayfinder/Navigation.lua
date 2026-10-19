@@ -287,7 +287,7 @@ end
 
 local function CreateArrow()
 	local f = CreateFrame("Button", "WayfinderArrow", UIParent)
-	f:SetSize(130, 128)
+	f:SetSize(110, 94)
 	f:SetFrameStrata("MEDIUM")
 	f:SetClampedToScreen(true)
 	f:SetMovable(true)
@@ -319,7 +319,7 @@ local function CreateArrow()
 	f:SetScript("OnLeave", GameTooltip_Hide)
 
 	local hub = CreateFrame("Frame", nil, f)
-	hub:SetSize(100, 90)
+	hub:SetSize(80, 62)
 	hub:SetPoint("TOP")
 	local function Layer(file, layer, subLevel, size)
 		local tex = f:CreateTexture(nil, layer, nil, subLevel)
@@ -328,34 +328,24 @@ local function CreateArrow()
 		tex:SetPoint("CENTER", hub, "CENTER")
 		return tex, loaded ~= false
 	end
-	f.base = Layer("CompassBase", "BACKGROUND", 0, 100)
 	f.head, f.useAtlas = Layer("NeedleAtlas", "ARTWORK", 0, 100)
 	if not f.useAtlas then
 		f.head:SetTexture(MEDIA .. "PlayerArrow")
 		f.head:SetSize(64, 64)
-		f.base:Hide()
-		ns.Print("Restart the game to load the new compass artwork; a simple pointer is shown until then.")
+		ns.Print("Restart the game to load the waypoint arrow artwork; a simple pointer is shown until then.")
 	end
 
-	local plate = CreateFrame("Frame", nil, f)
-	plate:SetSize(124, 36)
-	plate:SetPoint("TOP", hub, "BOTTOM", 0, 0)
-	local background = plate:CreateTexture(nil, "BACKGROUND")
-	background:SetAllPoints()
-	background:SetColorTexture(0.03, 0.06, 0.08, 0.9)
-	for _, side in ipairs({ { "TOPLEFT", "TOPRIGHT" }, { "BOTTOMLEFT", "BOTTOMRIGHT" } }) do
-		local line = plate:CreateTexture(nil, "BORDER")
-		line:SetColorTexture(CYAN[1], CYAN[2], CYAN[3], 0.3)
-		line:SetPoint(side[1])
-		line:SetPoint(side[2])
-		line:SetHeight(1)
-	end
-	f.distance = plate:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-	f.distance:SetPoint("TOP", 0, -2)
-	f.label = plate:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	-- Keep the useful readout without an opaque panel covering the world.
+	f.distance = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+	f.distance:SetPoint("TOP", hub, "BOTTOM", 0, -1)
+	f.distance:SetShadowColor(0, 0, 0, 1)
+	f.distance:SetShadowOffset(1, -1)
+	f.label = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	f.label:SetPoint("TOP", f.distance, "BOTTOM", 0, -1)
-	f.label:SetWidth(118)
+	f.label:SetWidth(110)
 	f.label:SetWordWrap(false)
+	f.label:SetShadowColor(0, 0, 0, 1)
+	f.label:SetShadowOffset(1, -1)
 
 	local elapsedSince = 0
 	f:SetScript("OnUpdate", function(_, elapsed)

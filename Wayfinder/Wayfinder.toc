@@ -2,7 +2,7 @@
 ## Title: Wayfinder
 ## Notes: A world map that keeps zooming into minimap detail, fills in as you explore, and remembers every vendor, mailbox, trainer, flight master and more. Type /wf for options.
 ## Author: saad780
-## Version: 1.4.8
+## Version: 1.4.12
 ## OptionalDeps: OpenMap, Questie
 ## Category: Map & Minimap
 ## SavedVariables: WayfinderDB

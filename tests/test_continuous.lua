@@ -80,7 +80,8 @@ end)
 test("capital artwork remains above terrain, including underground city maps", function()
 	for _, id in ipairs({ 1454, 1458 }) do
 		Show(id, 0.5, 0.5, 500)
-		check(ns.DetailView:IsFollowingMap() == (id ~= 1458), "Undercity defaults to its interior, outdoor cities keep terrain")
+		check(ns.DetailView:IsFollowingMap(), "every capital retains its marker overlay")
+		check(ns.DetailView:IsTerrainVisible() == (id ~= 1458), "Undercity defaults to its interior, outdoor cities keep terrain")
 		local found = ArtFrame(id)
 		check(found and found:IsShown(), "capital artwork visible " .. id)
 		check(found:GetFrameLevel() > WayfinderDetailView.children[1]:GetFrameLevel(), "city is above terrain")
@@ -91,7 +92,7 @@ test("Undercity defaults underground and its swap button changes floors without 
 	Show(1458, 0.65, 0.5, 500)
 	local id, surface = S.GetUndergroundView()
 	check(id == 1458 and surface == false, "interior is the default")
-	check(not ns.DetailView:IsFollowingMap(), "surface minimap cannot cover the default interior")
+	check(ns.DetailView:IsFollowingMap() and not ns.DetailView:IsTerrainVisible(), "markers remain while surface terrain cannot cover the default interior")
 	local city = ArtFrame(1458)
 	for _, texture in ipairs(city.textures or {}) do
 		check(texture.kind ~= "MaskTexture", "interior does not depend on an external mask loading")
@@ -111,7 +112,7 @@ test("Undercity defaults underground and its swap button changes floors without 
 	near(u, nu); near(v, nv); near(zoom, nz)
 	button.scripts.OnClick(button)
 	check(map:GetMapID() == 1458 and city:IsShown(), "swap back restores the city and its native pins")
-	check(not ns.DetailView:IsFollowingMap(), "city interior hides surface terrain again")
+	check(ns.DetailView:IsFollowingMap() and not ns.DetailView:IsTerrainVisible(), "city interior hides surface terrain while retaining markers")
 	check(select(2, S.GetUndergroundView()) == false, "returned underground")
 end)
 test("Undercity returns to its default after leaving or closing the map", function()
@@ -257,6 +258,72 @@ local function DetailPins(predicate)
 	end)
 	return result
 end
+test("Undercity keeps the same marker overlay when one zoom step enters the city layer",function()
+	local c,wx,wy=ns.MapToWorld(1458,.01,.5)
+	local id,questID=898301,898302
+	local rec=ns.Database:RecordNPC({npcID=id,name="Undercity recorded service",cats={repair=true},cont=c,wx=wx+30,wy=wy,mapID=1458,accuracy=1})
+	local frame=CreateFrame("Frame",nil,sc.Child)
+	local source=CreateFrame("Button",nil,frame)
+	frame.icon=source;source:SetSize(18,18)
+	source.data={Type="manual",id=898303,Name="Undercity temporary service"}
+	source.isManualIcon,source.miniMapIcon,source.UiMapID=true,false,1458
+	source.x,source.y=1,50
+	function source:ShouldBeHidden() return self.filtered==true end
+	local texture=source:CreateTexture(nil,"ARTWORK");texture:SetAllPoints();texture:SetTexture("CityServiceArt")
+	local u,v=C.API.WorldFromMap(1458,.01,.5)
+	function frame:GetPosition() return C.API.MapFromWorld(map:GetMapID(),u,v) end
+	function frame:GetMap() return map end
+	ns.MinimapTurnIns:TagFrame(source,"Vendor",source.data.id)
+	local object=CreateFrame("Frame",nil,sc.Child)
+	object:SetSize(18,18)
+	object.data={Name="Undercity addon object"}
+	local objectU,objectV=C.API.WorldFromMap(1458,.025,.49)
+	function object:GetPosition() return C.API.MapFromWorld(map:GetMapID(),objectU,objectV) end
+	function object:GetMap() return map end
+	local objectTexture=object:CreateTexture(nil,"ARTWORK")
+	objectTexture:SetAllPoints();objectTexture:SetTexture("CityObjectArt")
+	object:SetScript("OnEnter",function() GameTooltip:SetText("Undercity object details");GameTooltip:Show() end)
+	mock.questLog[questID],mock.readyQuests[questID]=true,true
+	mock.questPOIs[1458]={{questID=questID,x=.02,y=.5}}
+	local function CheckPins()
+		check(#DetailPins(function(pin) return pin.rec==rec end)==1,"recorded service survives the city handoff")
+		check(#DetailPins(function(pin) return pin.rec and pin.rec.id==898303 or pin.external and pin.external.npcID==898303 end)==1,"temporary service retains exactly one marker")
+		check(#DetailPins(function(pin) return pin.quest and pin.quest.questID==questID end)==1,"golden turn-in survives the city handoff")
+		check(#DetailPins(function(pin) return pin.external and pin.external.frame==object end)==1,"addon object retains its artwork through the city handoff")
+	end
+	Show(1458,-.005,.5,500)
+	check(ns.DetailView:IsFollowingMap(),"terrain starts with a persistent overlay")
+	CheckPins()
+	-- Zoom toward a nearby point in the visible city. A single notch moves the
+	-- view centre across the underground footprint while all three pins remain
+	-- well inside the viewport, matching the screenshot's layer handoff.
+	local cursorU,cursorV=C.API.WorldFromMap(1458,.045,.5)
+	local centerU,centerV,zoom=C.API.GetView()
+	local hu,hv=controller.ViewHalfExtents(zoom)
+	mock.cursorX=(sc:GetLeft()+sc:GetWidth()/2+(cursorU-centerU)/hu*sc:GetWidth()/2)*sc:GetEffectiveScale()
+	mock.cursorY=(sc:GetTop()-sc:GetHeight()/2-(cursorV-centerV)/hv*sc:GetHeight()/2)*sc:GetEffectiveScale()
+	sc.scripts.OnMouseWheel(sc,1);mock.Advance(.6)
+	mock.cursorX,mock.cursorY=nil,nil
+	CheckPins()
+	check(ns.DetailView:IsFollowingMap() and not ns.DetailView:IsTerrainVisible(),"underground retains pins without drawing surface tiles")
+	check(next(ns.DetailView.activeTiles)==nil,"underground does not allocate hidden terrain")
+	Show(1458,.01,.5,500)
+	CheckPins()
+	for _,pin in ipairs(DetailPins(function(pin) return pin.rec==rec end)) do check(pin:GetFrameLevel()>S.artTop,"service stays above city artwork") end
+	C.layerButton.scripts.OnClick(C.layerButton);mock.Advance(.1)
+	check(ns.DetailView:IsTerrainVisible(),"switching to the surface restores actual terrain")
+	check(#DetailPins(function(pin) return pin.rec==rec end)==1,"surface switch retains the recorded service")
+	C.layerButton.scripts.OnClick(C.layerButton);mock.Advance(.1)
+	CheckPins()
+	local objectPin=DetailPins(function(pin) return pin.external and pin.external.frame==object end)[1]
+	objectPin.scripts.OnEnter(objectPin)
+	check(GameTooltip.lines[1]=="Undercity object details","underground object retains its source tooltip")
+	objectPin.scripts.OnLeave(objectPin)
+	source.filtered=true;frame:Hide()
+	object:Hide()
+	mock.questLog[questID],mock.readyQuests[questID],mock.questPOIs[1458]=nil,nil,nil
+	ns:Fire("QUEST_TURN_INS_CHANGED")
+end)
 test("continuous copies exclusively own drawing and restore owner alpha after zooming out", function()
 	local c, wx, wy = ns.MapToWorld(1429, 0.55, 0.55)
 	local rec = ns.Database:RecordNPC({npcID=887781,name="Single service copy",cats={repair=true},cont=c,wx=wx,wy=wy,mapID=1429,accuracy=1})
@@ -496,6 +563,31 @@ test("world map and minimap select the same three service locations from overlap
 	for key in pairs(world) do wc=wc+1; check(mini[key],"world-map service location must also be on minimap") end
 	for key in pairs(mini) do mc=mc+1; check(world[key],"minimap uses the same canonical location as world map") end
 	check(wc==3 and mc==3,"both views display all three locations")
+end)
+test("world-only service icons persist through terrain zoom and respect both category menus",function()
+	local id=898201
+	local data={Type="manual",id=id,Name="Persistent world-only merchant"}
+	local frame,source=ForeignPin(data,.74,.74,"vendor")
+	source.isManualIcon,source.miniMapIcon,source.UiMapID=true,false,1429
+	source.x,source.y=74,74
+	function source:ShouldBeHidden() return self.filtered==true end
+	ns.MinimapTurnIns:TagFrame(source,"Vendor",id)
+	local u,v=C.API.WorldFromMap(1429,.74,.74)
+	local function Count()
+		return #DetailPins(function(pin) return pin.rec and pin.rec.id==id or pin.external and pin.external.npcID==id end)
+	end
+	for _,span in ipairs({2200,1400,500,140}) do
+		Show(1429,.74,.74,C:GetMaxZoom(u,v)*140/span)
+		frame:Hide() -- HBD no longer draws the canvas wrapper at this zoom.
+		ns.AddonPins:Refresh();mock.Advance(.03,.01)
+		check(Count()==1,"one marker remains after its world wrapper disappears at "..span.." yards")
+	end
+	ns:SetCategoryEnabled("vendor",false);mock.Advance(.03,.01)
+	check(Count()==0,"the same category setting applies after the terrain handoff")
+	ns:SetCategoryEnabled("vendor",true);mock.Advance(.03,.01)
+	check(Count()==1,"reenabling restores the indexed marker immediately")
+	source.filtered=true;ns.MinimapTurnIns:SourcesChanged();mock.Advance(.03,.01)
+	check(Count()==0,"explicit owner filtering removes the persistent fallback")
 end)
 test("dungeons retain native map behavior and exploration overlays reuse their textures", function()
 	Show(1454, 0.5, 0.5, 500)

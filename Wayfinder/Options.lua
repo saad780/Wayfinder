@@ -86,7 +86,7 @@ function Options:BuildPanel()
 		end)
 	Header(layout, "Live minimap")
 	Checkbox(category, "showMinimapServices", "Use Wayfinder service markers",
-		"Show one Wayfinder marker per nearby service NPC. Service checkboxes in Blizzard's minimap tracking menu and Wayfinder stay synchronized. Suppress duplicate service markers; quest markers and resource tracking remain available.")
+		"Keep Blizzard's native service blips and tracking checkboxes synchronized with Wayfinder. Wayfinder supplies additional service types without duplicating native blips. Native services retain smooth movement and live NPC positions.")
 	Checkbox(category, "nativeMinimapTurnIns", "Prefer Blizzard's turn-in markers",
 		"Keep the game's quest turn-in tracking on the corner minimap and hide Questie's duplicate fixed turn-in pins. The game owns live NPC positions and its expected quest locations. World-map markers, quest pickups and objectives keep their existing behavior.")
 

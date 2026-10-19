@@ -97,6 +97,14 @@ def main():
     with open(os.path.join(HERE, "test_idle.lua"), encoding="utf-8") as fh:
         if idle.execute(fh.read()):
             sys.exit(1)
+    motion = load_addon(quiet=True)
+    with open(os.path.join(HERE, "test_minimap_motion.lua"), encoding="utf-8") as fh:
+        if motion.execute(fh.read()):
+            sys.exit(1)
+    visibility = load_addon(quiet=True)
+    with open(os.path.join(HERE, "test_service_visibility.lua"), encoding="utf-8") as fh:
+        if visibility.execute(fh.read()):
+            sys.exit(1)
     for with_openmap in (False, True):
         continuous = load_addon(continuous=True, with_openmap=with_openmap)
         with open(os.path.join(HERE, "test_continuous.lua"), encoding="utf-8") as fh:

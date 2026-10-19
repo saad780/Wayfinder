@@ -39,14 +39,17 @@ local function test(name,fn)
 	if ok then passed=passed+1; io.write("  ok    ",name,"\n")
 	else failed=failed+1; io.write("  FAIL  ",name,"\n        ",tostring(err),"\n") end
 end
-test("Blizzard checkboxes show Wayfinder service selections while duplicate blips stay disabled",function()
+test("Blizzard checkboxes control real native blips and Wayfinder selections together",function()
 	assert(repair.selected(repair.data)==true,"checked service reflects visible Wayfinder icons")
-	assert(active[2]==false,"native duplicate remains suppressed")
+	assert(active[2]==true,"native tracking stays enabled even for NPCs absent from Wayfinder")
 	assert(repair.responder(repair.data)==MenuResponse.Refresh)
+	mock.Advance(.03,.01)
 	assert(not ns:IsCategoryEnabled("repair") and not repair.selected(repair.data),"native uncheck changes Wayfinder too")
+	assert(not active[2],"unchecking disables the actual native blip")
 	repair.responder(repair.data)
+	mock.Advance(.03,.01)
 	assert(ns:IsCategoryEnabled("repair") and repair.selected(repair.data),"native check persists")
-	assert(active[2]==false,"checking does not reintroduce duplicate native icons")
+	assert(active[2]==true,"checking restores native icons rather than an empty replacement")
 end)
 test("Wayfinder settings and external native tracking changes update the same selection",function()
 	ns:SetCategoryEnabled("repair",false)
@@ -67,6 +70,57 @@ test("gathering and quest filters keep native behavior and clear-all updates ser
 	C_Minimap.ClearAllTracking()
 	assert(not ns:IsCategoryEnabled("repair") and not ns:IsCategoryEnabled("bank"),"clear-all includes Wayfinder services")
 	assert(not repair.selected(repair.data))
+end)
+test("supported services use native rendering without a competing Wayfinder marker",function()
+	ns:SetCategoryEnabled("repair",true); ns:SetCategoryEnabled("bank",true)
+	mock.Advance(.03,.01)
+	local c,x,y=ns.GetPlayerWorld()
+	local rec=ns.Database:RecordNPC({npcID=898001,name="Native repair merchant",cats={repair=true,vendor=true},cont=c,wx=x+10,wy=y,mapID=mock.playerMap,accuracy=1})
+	Mini:Update()
+	assert(active[1] and active[2],"native blips remain available for every supported NPC, including unrecorded ones")
+	for _,pin in ipairs(Mini.pins) do assert(not pin:IsShown() or pin.rec~=rec,"no duplicate Lua-projected repair marker") end
+	ns:SetCategoryEnabled("repair",false);mock.Advance(.03,.01)
+	assert(not active[2],"native repair checkbox controls its actual blips")
+	local fallback
+	for _,pin in ipairs(Mini.pins) do if pin:IsShown() and pin.rec==rec then fallback=pin end end
+	assert(fallback and fallback.catID=="vendor","an independently selected generic vendor category still works")
+end)
+test("synchronous tracking events cannot undo clicks before the native post-hook runs",function()
+	C_Minimap.SetTracking=function(i,value) active[i]=value;mock.Fire("MINIMAP_UPDATE_TRACKING") end
+	Mini:InstallTrackingMenu()
+	for _,value in ipairs({true,false,true,false,true}) do
+		C_Minimap.SetTracking(2,value);mock.Advance(.03,.01)
+		assert(active[2]==value and ns:IsCategoryEnabled("repair")==value,"the user's native choice persists past the next frame")
+	end
+	ns:SetCategoryEnabled("repair",false);mock.Advance(.03,.01)
+	assert(not active[2] and not repair.selected(repair.data),"Wayfinder settings also update the native checkbox")
+end)
+test("a native repair source also covers the same NPC recorded only as a vendor",function()
+	ns:SetCategoryEnabled("repair",true);ns:SetCategoryEnabled("vendor",true)
+	local c,x,y=ns.GetPlayerWorld()
+	local id=898002
+	local rec=ns.Database:RecordNPC({npcID=id,name="Vendor with native repair",cats={vendor=true},cont=c,wx=x-20,wy=y+10,mapID=mock.playerMap,accuracy=1})
+	local frame=CreateFrame("Button",nil,Minimap)
+	frame.data={Type="manual",id=id,Name=rec.n}
+	frame.isManualIcon,frame.miniMapIcon,frame.UiMapID=true,true,mock.playerMap
+	local mx,my=ns.WorldToMapRect(ns.GetMapRect(mock.playerMap),rec.x,rec.y)
+	frame.x,frame.y=mx*100,my*100
+	function frame:ShouldBeHidden() return self.filtered==true end
+	function frame:FakeHide() self.hidden=true;self:Hide() end
+	ns.MinimapTurnIns:TagFrame(frame,"Repair",id)
+	Mini:Update()
+	assert(active[2])
+	for _,pin in ipairs(Mini.pins) do assert(not pin:IsShown() or pin.rec.id~=id,"a vendor fallback cannot duplicate a known native repair NPC") end
+	frame.filtered=true;frame:Hide()
+end)
+test("Classic tracking menus still synchronize when GetTrackingFilter is unavailable",function()
+	local filter=C_Minimap.GetTrackingFilter
+	C_Minimap.GetTrackingFilter=nil
+	ns:SetCategoryEnabled("repair",true);mock.Advance(.03,.01)
+	assert(active[2] and Mini.nativeCategories.repair,"recognized native menu label supplies the Classic fallback")
+	C_Minimap.SetTracking(2,false);mock.Advance(.03,.01)
+	assert(not active[2] and not ns:IsCategoryEnabled("repair"))
+	C_Minimap.GetTrackingFilter=filter
 end)
 test("disabling Wayfinder restores the latest checkbox choices to native tracking",function()
 	ns:SetCategoryEnabled("bank",true); ns:SetCategoryEnabled("repair",false)

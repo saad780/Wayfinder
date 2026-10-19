@@ -1244,7 +1244,7 @@ test("the arrow points at the waypoint relative to where you face", function()
 	mock.facing = nil
 end)
 
-test("compass yaw frames cover cardinals, diagonals and wrap without changing bearings", function()
+test("arrow yaw frames cover cardinals, diagonals and wrap without changing bearings", function()
 	setPlayer(1429, 0.42, 0.65)
 	mock.facing = 0
 	local cases = { { 100, 0, 0 }, { 100, 100, 16 }, { 0, 100, 32 }, { -100, 100, 48 },
@@ -1277,9 +1277,11 @@ test("compass yaw frames cover cardinals, diagonals and wrap without changing be
 	mock.facing = nil
 end)
 
-test("compass retains saved position, scale, unavailable-position state and pointer fallback", function()
+test("standalone arrow retains saved position, scale, unavailable-position state and pointer fallback", function()
 	local savedPosition, savedScale = ns.db.arrowPosition, ns:GetSetting("arrowScale")
 	local arrow = WayfinderArrow
+	eq(arrow.base, nil, "no compass housing covers the world")
+	ok(arrow:GetWidth() < 130 and arrow:GetHeight() < 128, "smaller drag/click footprint")
 	ns.db.arrowPosition = { "CENTER", "CENTER", 75, -25 }
 	ns:SetSetting("arrowScale", 1.25)
 	Nav:PlaceArrow()

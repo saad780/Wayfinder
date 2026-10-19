@@ -24,6 +24,7 @@ local UNDERLAY_SHADE = 0.85
 
 local view, plane, pinLayer, arrowFrame, hud
 local active, following = false, false
+local pinsOnly = false -- underground city art replaces terrain, never its markers
 local cont
 local cx, cy, scale = 0, 0, 1       -- current centre (plane yards) and UI units per yard
 local verticalRatio = 1            -- continuous map art can stretch the two axes differently
@@ -340,6 +341,7 @@ local function ReleaseAllTiles()
 end
 
 local function UpdateTiles(force)
+	if pinsOnly then return end
 	local l, r, t, b = VisibleRect(0.15)
 	local c0, c1 = floor(l / TILE + 32), floor(r / TILE + 32)
 	local r0, r1 = floor(t / TILE + 32), floor(b / TILE + 32)
@@ -566,7 +568,7 @@ local function DescribePin(pin, index)
 		questID = quest and quest.questID or entry and entry.questID,
 		giver = giver, service = service, isQuest = isQuest,
 		rank = rec and rec.waypoint and 4 or turnIn and 3 or isQuest and 2 or 1,
-		quality = isQuest and (entry and 3 or quest and 2 or 1) or rec and 3 or 1,
+		quality = isQuest and (entry and 3 or quest and 2 or 1) or (rec and not rec.ephemeral) and 3 or entry and 2 or 1,
 		index = index }
 end
 
@@ -682,6 +684,9 @@ local function RefreshPins()
 	end
 	ns.Database:Query(cont, minX, maxX, minY, maxY, Add)
 	ns.Seeds:Query(cont, minX, maxX, minY, maxY, Add)
+	-- The service index survives canvas zoom fading and contains both world
+	-- and minimap sources, so crossing the terrain threshold loses no services.
+	ns.MinimapTurnIns:QueryServices(cont, minX, maxX, minY, maxY, Add)
 	local questMaps, savedMap = {}, underlayMapID
 	if following then
 		for _, id in ipairs(ns.ContinuousEngine.MapStitch.VisibleMaps()) do
@@ -696,6 +701,10 @@ local function RefreshPins()
 	underlayMapID = savedMap
 	local mirroredTurnIns, sources = {}, {}
 	ns.AddonPins:Query(cont, minX, maxX, minY, maxY, function(entry)
+		if entry.service and not ns.Categories:GetVisibleCategory({cats={[entry.service]=true},a=0}) then
+			if following then sources[entry.source] = true end
+			return
+		end
 		local pin = AcquirePin()
 		pin.external = entry
 		pin.px, pin.py = ns.WorldToPlane(entry.x, entry.y)
@@ -1060,10 +1069,11 @@ function DetailView:IsActive()
 end
 
 function DetailView:IsFollowingMap() return active and following end
+function DetailView:IsTerrainVisible() return active and not pinsOnly end
 
--- Terrain uses the native map's exact centre/scale. It never receives mouse
--- input; cities and native pins remain in their normal canvas above this layer.
-function DetailView:FollowMap(continent, wx, wy, pixelsPerYard, alpha, level, questLevel, pixelsPerYardY)
+-- Terrain and markers use the native map's exact centre/scale. Underground
+-- cities keep only the markers; their city artwork replaces surface tiles.
+function DetailView:FollowMap(continent, wx, wy, pixelsPerYard, alpha, level, questLevel, pixelsPerYardY, withoutTerrain)
 	if not view then CreateFrames() end
 	local ratio = (pixelsPerYardY or pixelsPerYard) / pixelsPerYard
 	local reset = not following or cont ~= continent or abs(verticalRatio - ratio) > 0.00001
@@ -1075,12 +1085,19 @@ function DetailView:FollowMap(continent, wx, wy, pixelsPerYard, alpha, level, qu
 		underlayMapID = nil
 		pinsDirty = true
 	end
+	if pinsOnly ~= (withoutTerrain == true) then
+		pinsOnly = withoutTerrain == true
+		ReleaseAllTiles()
+		ReleaseTextures(underlay)
+		pinsDirty = true
+	end
 	active, following, cont = true, true, continent
 	verticalRatio = ratio
 	cx, cy = ns.WorldToPlane(wx, wy)
 	tcx, tcy, scale, tscale = cx, cy, pixelsPerYard, pixelsPerYard
 	view:SetFrameLevel(level)
 	plane:SetFrameLevel(level + 1)
+	plane:SetShown(not pinsOnly)
 	pinLayer:SetFrameLevel(questLevel)
 	view:EnableMouse(false)
 	view:EnableMouseWheel(false)
@@ -1151,6 +1168,8 @@ function DetailView:EnterFromMap()
 	self.entryX, self.entryY = cx, cy
 
 	active = true
+	pinsOnly = false
+	plane:Show()
 	underlayMapID = nil
 	ReleaseAllTiles()
 	SetUnderlay(info.mapType == Enum.UIMapType.Continent and ZoneAt(cx, cy) or mapID)
@@ -1181,6 +1200,7 @@ function DetailView:Exit(skipPan)
 	end
 	local wasFollowing = following
 	active, following = false, false
+	pinsOnly = false
 	ns.AddonPins:SyncSources({})
 	if wasFollowing then ns.MapPins:RefreshNow() end
 	verticalRatio = 1
@@ -1278,6 +1298,7 @@ function DetailView:OnLogin()
 	ns:On("POI_REMOVED", MarkPins)
 	ns:On("WAYPOINT_CHANGED", MarkPins)
 	ns:On("ADDON_PINS_CHANGED", MarkPins)
+	ns:On("SERVICE_SOURCES_CHANGED", MarkPins)
 	ns:On("QUEST_AVAILABILITY_CHANGED", MarkPins)
 	ns:On("QUEST_TURN_INS_CHANGED", MarkPins)
 	ns:On("MAP_LAYER_CHANGED", MarkPins)

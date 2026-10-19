@@ -1,4 +1,4 @@
-"""Check the delivered compass atlas, geometric direction and texture gutters."""
+"""Check the delivered arrow atlas, geometric direction and texture gutters."""
 import hashlib
 import importlib.util
 import math
@@ -35,7 +35,7 @@ class ArrowArtTest(unittest.TestCase):
         lua.execute('mock.Fire("ADDON_LOADED", "Wayfinder"); mock.Fire("PLAYER_LOGIN")')
         arrow = lua.globals().WayfinderArrow
         self.assertFalse(arrow.useAtlas)
-        self.assertFalse(arrow.base.shown)
+        self.assertIsNone(arrow.base)
         self.assertTrue(arrow.head.texture.endswith("PlayerArrow"))
         self.assertIn("Restart the game", lua.globals().mock.printed)
         lua.globals().mock.facing = 0
@@ -45,7 +45,7 @@ class ArrowArtTest(unittest.TestCase):
         self.assertIn("yd", arrow.distance.text)
 
     def test_texture_format_and_atlas_dimensions_are_client_compatible(self):
-        for name, size in (("NeedleAtlas", (2048, 1024)), ("CompassBase", (128, 128))):
+        for name, size in (("NeedleAtlas", (2048, 1024)),):
             path = ROOT / "Wayfinder/Media/Arrow" / (name + ".tga")
             header = path.read_bytes()[:18]
             self.assertEqual(header[2], 2, "uncompressed true-color TGA")
@@ -78,7 +78,7 @@ class ArrowArtTest(unittest.TestCase):
                 self.assertGreater((point[0] - art.ORIGIN[0]) * dx, 40)
             if dy:
                 self.assertGreater((point[1] - art.ORIGIN[1]) * dy, 25)
-        # The raised ridge must project above a point on the compass surface.
+        # The raised ridge must project above a point on the ground plane.
         self.assertLess(art.project((0, 0, 12))[1], art.project((0, 0, 0))[1] - 8)
 
 
