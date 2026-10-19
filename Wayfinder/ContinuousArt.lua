@@ -61,7 +61,7 @@ function S.ChainAt(u, v)
 			if last == parent then chain[#chain + 1] = city end
 		end
 	end
-	if undergroundContext and showSurface and chain[#chain] == UNDERCITY then
+	if showSurface and chain[#chain] == UNDERCITY then
 		table.remove(chain)
 		if S.Rect(UNDERCITY_SURFACE) and chain[#chain] ~= UNDERCITY_SURFACE then
 			chain[#chain + 1] = UNDERCITY_SURFACE
@@ -171,7 +171,6 @@ local function UpdateUndergroundContext()
 	local inside = rec and shown and viewU >= rec.l and viewU <= rec.r
 		and viewV >= rec.t and viewV <= rec.b
 		and zoom >= 0.7 * math.min(1 / (rec.r-rec.l), 1 / (rec.b-rec.t))
-	if not inside then showSurface = false end
 	undergroundContext = inside and true or false
 	ns.ContinuousMap:UpdateLayerButton(S.GetUndergroundView())
 end
@@ -195,9 +194,9 @@ function S.Recull()
 		local fit = math.min(1 / (rec.r - rec.l), 1 / (rec.b - rec.t))
 		local alpha = id == S.WORLD and 1 or rec.city and Smooth(0.2 * fit, 0.4 * fit, zoom)
 			or rec.continent and Smooth(1.1, 2.2, zoom) or Smooth(0.35 * fit, 0.8 * fit, zoom)
-		if id == UNDERCITY and undergroundContext then
+		if id == UNDERCITY then
 			visible = visible and not showSurface
-			alpha = 1
+			if undergroundContext then alpha = 1 end
 		end
 		rec.visible = visible and alpha > 0.001
 		if rec.visible and not rec.frame then BuildMap(rec) end
@@ -233,7 +232,9 @@ end
 function S.SetShown(on)
 	shown = on and true or false
 	if root then root:SetShown(shown) end
-	if not shown then S.ResetUndergroundView() end
+	-- Leaving this area (or visiting a dungeon) does not close the world map.
+	-- Keep the selected floor until the map's actual OnHide resets it.
+	if not shown then UpdateUndergroundContext() end
 	if not shown and ns.DetailView:IsFollowingMap() then ns.DetailView:Exit(true) end
 end
 function S.SetZoom() end -- SetView supplies the matching view and zoom together.
@@ -269,19 +270,33 @@ function S.RefreshExplored()
 end
 function S.ApplyGrade() S.RefreshExplored() end
 function S.SetPlayer(u, v, facing)
-	if not u or not shown then if player then player:Hide() end; return end
+	if not u or not shown then if player and player:IsShown() then player:Hide() end; return false end
 	if not player then
 		player = CreateFrame("Frame", nil, root)
+		player:EnableMouse(false)
+		player:SetIgnoreParentAlpha(true)
 		player.texture = player:CreateTexture(nil, "OVERLAY")
 		player.texture:SetAllPoints()
-		player.texture:SetTexture(ns.Categories:GetMediaPath("PlayerArrow"))
+		if ns.Categories.playerArrowAtlas then
+			player.texture:SetAtlas(ns.Categories.playerArrowAtlas)
+		else
+			player.texture:SetTexture(ns.Categories:GetMediaPath("PlayerArrow"))
+		end
 	end
 	local sc = WorldMapFrame.ScrollContainer
 	local effective = root:GetEffectiveScale() / sc:GetEffectiveScale()
-	player:SetSize(24 / effective, 24 / effective)
-	player:ClearAllPoints()
-	player:SetPoint("CENTER", root, "TOPLEFT", u * W, -v * H)
-	player.texture:SetRotation(facing or 0)
-	player:Show()
+	if player.effective ~= effective then
+		player:SetSize(24 / effective, 24 / effective)
+		player.effective = effective
+	end
+	if player.u ~= u or player.v ~= v then
+		player:ClearAllPoints()
+		player:SetPoint("CENTER", root, "TOPLEFT", u * W, -v * H)
+		player.u, player.v = u, v
+	end
+	facing = facing or 0
+	if player.facing ~= facing then player.texture:SetRotation(facing); player.facing = facing end
+	if not player:IsShown() then player:Show() end
+	return true
 end
-function S.RaiseArrow(level) if player then player:SetFrameLevel(level) end end
+function S.RaiseArrow(level) if player and player:GetFrameLevel() ~= level then player:SetFrameLevel(level) end end

@@ -10,6 +10,8 @@ mock.maps[1458] = { name = "Undercity", mapType = 3, parent = 1415, cont = 0,
 	top = 10000, left = 10000, width = 1200, height = 800, isCity = true }
 mock.maps[1420] = { name = "Tirisfal Glades", mapType = 3, parent = 1415, cont = 0,
 	top = 11000, left = 12000, width = 6000, height = 4000 }
+mock.maps[1421] = { name = "Silverpine Forest", mapType = 3, parent = 1415, cont = 0,
+	top = 8500, left = 14000, width = 5000, height = 4000 }
 mock.maps[9999] = { name = "Dungeon", mapType = 4, parent = 1429 }
 local worldRects = { [947] = { 0, 1, 0, 1 },
 	[1414] = { 0.05, 0.45, 0.1, 0.9 }, [1415] = { 0.55, 0.95, 0.1, 0.9 } }

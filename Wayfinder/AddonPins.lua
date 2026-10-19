@@ -64,6 +64,9 @@ end
 
 local function IsOwn(frame)
 	return frame == WayfinderDetailView or frame.pinTemplate == "WayfinderMapPinTemplate"
+		-- Native unit pins contain live player/party markers, not fixed POIs.
+		-- Never snapshot their children or mask the entire party frame.
+		or frame.pinTemplate == "GroupMembersPinTemplate" or frame.template == "GroupMembersPinTemplate"
 		or (type(frame.rec) == "table" and frame.rec.cats)
 end
 local function IgnoreZoomFade(frame)

@@ -110,6 +110,14 @@ def main():
         with open(os.path.join(HERE, "test_continuous.lua"), encoding="utf-8") as fh:
             if continuous.execute(fh.read()):
                 sys.exit(1)
+        player = load_addon(continuous=True, with_openmap=with_openmap, quiet=True)
+        with open(os.path.join(HERE, "test_continuous_player.lua"), encoding="utf-8") as fh:
+            if player.execute(fh.read()):
+                sys.exit(1)
+        flights = load_addon(continuous=True, with_openmap=with_openmap, quiet=True)
+        with open(os.path.join(HERE, "test_flight_quests.lua"), encoding="utf-8") as fh:
+            if flights.execute(fh.read()):
+                sys.exit(1)
     disabled = load_addon(continuous=True, with_openmap=True, disabled=True)
     disabled.execute("""
         assert(not Wayfinder.ContinuousMap.started)

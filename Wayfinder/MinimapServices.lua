@@ -159,11 +159,17 @@ local function Acquire(index)
 		pin.Icon:SetAllPoints()
 		pin.Icon:SetSnapToPixelGrid(false)
 		pin.Icon:SetTexelSnappingBias(0)
-		pin:SetScript("OnEnter", function(owner) ns.Tooltip:Show(owner, owner.rec, owner.catID) end)
+		pin:SetScript("OnEnter", function(owner)
+			ns.Tooltip:Show(owner, owner.rec, owner.catID)
+			if owner.flightQuest then
+				GameTooltip:AddLine(owner.flightQuest.turnIn and "Ready to turn in" or "Available quest",1,.82,0)
+				GameTooltip:Show()
+			end
+		end)
 		pin:SetScript("OnLeave", GameTooltip_Hide)
 		pin:SetScript("OnClick", function(owner, button)
 			if button == "MiddleButton" then ns.Navigation:ToggleWaypointAt(owner.rec, owner.catID)
-			elseif button == "LeftButton" and IsShiftKeyDown() then ns:RemoveLocation(owner.rec) end
+			elseif button == "LeftButton" and IsShiftKeyDown() then ns:RemoveLocation(owner.sourceRec or owner.rec) end
 		end)
 		pins[index] = pin
 	end
@@ -250,7 +256,7 @@ function Mini:UpdatePositions(cont, wx, wy)
 		if self.square then visible = math.abs(x)<=safeRadius and math.abs(y)<=safeRadius
 		else visible = x*x+y*y<=safeRadius*safeRadius end
 		if visible then
-			local px, py = x/radius*halfW, y/radius*halfH
+			local px, py = x/radius*halfW+(pin.offsetX or 0), y/radius*halfH+(pin.offsetY or 0)
 			if pin.anchor ~= Minimap or pin.px ~= px or pin.py ~= py then
 				pin:ClearAllPoints()
 				pin:SetPoint("CENTER", Minimap, "CENTER", px, py)
@@ -283,7 +289,8 @@ function Mini:Rebuild()
 	local quests, maps = {}, {}
 	local function AddQuest(mapID, info)
 		local c, x, y = ns.MapToWorld(mapID, info.x, info.y)
-		if c == cont then quests[#quests+1] = { x = x, y = y, questID = info.questID } end
+		if c == cont then quests[#quests+1] = { x = x, y = y, questID = info.questID, native=true,
+			turnIn=info.turnIn,kind=info.turnIn and "complete" or "available" } end
 	end
 	local mapID = C_Map.GetBestMapForUnit("player")
 	while mapID and not maps[mapID] do
@@ -314,7 +321,9 @@ function Mini:Rebuild()
 		local quest, nearest = quests[i], 25
 		for _,giver in ipairs(known[quest.questID] or {}) do
 			local distance = ns.Distance(quest.x,quest.y,giver.x,giver.y)
-			if distance < nearest then quest.n,nearest=giver.n,distance end
+			if distance < nearest then
+				quest.n,quest.npcID,nearest=giver.n,giver.npcID,distance
+			end
 		end
 	end
 	local used, locations, candidates, nativeLocations = 0, {}, {}, {}
@@ -324,8 +333,14 @@ function Mini:Rebuild()
 	end
 	local function Add(candidate)
 		local rec,cat=candidate.rec,candidate.cat
-		if self.nativeCategories[cat] then return end
-		if cat ~= "quest" then
+		local flight=cat=="flight" or rec.cats.flight and ns.Categories:GetVisibleCategory(rec,true)=="flight"
+		local flightQuest=flight and ns:IsCategoryEnabled("quest") and ns.FlightQuests:Find(rec,quests) or nil
+		if flight and cat=="quest" and not flightQuest then
+			flightQuest={npcID=rec.id,n=rec.n,x=rec.x,y=rec.y,kind="available",flightGiver=true}
+		end
+		if flightQuest then cat="flight" end
+		if self.nativeCategories[cat] and not flightQuest then return end
+		if cat ~= "quest" and not flightQuest then
 			for _,native in ipairs(nativeLocations) do
 				if ns.ServiceLocations:Same(rec,native) then return end
 			end
@@ -333,12 +348,16 @@ function Mini:Rebuild()
 		-- A quest replaces services at the same NPC. Use identities, or a tight
 		-- four-yard fallback when identity is unknown, never a screen-pixel radius
 		-- that grows in world space as the minimap zooms out.
-		for _, quest in ipairs(quests) do
-			local distance = ns.Distance(rec.x, rec.y, quest.x, quest.y)
-			if quest.n and rec.n then
-				if quest.n == rec.n and distance < 25 then return end
-			elseif distance < 4 then return end
+		if not flightQuest then
+			for _, quest in ipairs(quests) do
+				local distance = ns.Distance(rec.x, rec.y, quest.x, quest.y)
+				if quest.n and rec.n then
+					if quest.n == rec.n and distance < 25 then return end
+				elseif distance < 4 then return end
+			end
 		end
+		local sourceRec=rec
+		if flightQuest then rec=ns.FlightQuests:DisplayRecord(rec,flightQuest) end
 		for _, prior in ipairs(locations) do
 			if prior == rec or ns.ServiceLocations:Same(rec,prior) then return end
 		end
@@ -346,7 +365,13 @@ function Mini:Rebuild()
 		used = used + 1
 		local pin = Acquire(used)
 		pin.rec, pin.catID = rec, cat
-		local level = Minimap:GetFrameLevel() + (cat == "quest" and 13 or 12)
+		pin.sourceRec,pin.flightQuest=flightQuest and sourceRec or nil,flightQuest
+		-- Leave the native question mark live. Its companion flight icon sits
+		-- immediately beside it, rather than drawing another question mark.
+		local questOwner=flightQuest and (flightQuest.native or flightQuest.frame)
+		pin.offsetX,pin.offsetY=questOwner and -13 or 0,questOwner and -2 or 0
+		ns.FlightQuests:Badge(pin,flightQuest and not questOwner and (flightQuest.turnIn and "complete" or "available") or nil,16)
+		local level = Minimap:GetFrameLevel() + ((cat == "quest" or flightQuest) and 13 or 12)
 		if pin.serviceLevel ~= level then pin:SetFrameLevel(level); pin.serviceLevel = level end
 		local kind, icon = ns.Categories:GetIconSource(cat, rec)
 		if pin.iconKind ~= kind or pin.iconSource ~= icon then

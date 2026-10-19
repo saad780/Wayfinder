@@ -386,32 +386,36 @@ end
 local BLIP_GONE = 0.01            -- (a size too small to draw: 0 is taken as the texture's own size, a huge arrow)
 local blipHidden = setmetatable({}, { __mode = "k" })
 local blipHooked = setmetatable({}, { __mode = "k" })
+local overlayPlayer = false
 local function PlayerBlip(pin, shown)
 	if not pin.SetPinSize then return end
 	if not shown then
 		if not blipHooked[pin] and type(pin.SynchronizePinSizes) == "function" then
 			blipHooked[pin] = true
 			hooksecurefunc(pin, "SynchronizePinSizes", function(self)
-				if mod.db.playerArrow == false and not (self:IsProtected() and InCombatLockdown()) then
+				if active and map:IsShown() and (overlayPlayer or mod.db.playerArrow == false)
+					and not (self:IsProtected() and InCombatLockdown()) then
 					pcall(self.SetPinSize, self, "player", BLIP_GONE)
 				end
 			end)
 		end
-		pcall(pin.SetPinSize, pin, "player", BLIP_GONE)
-		blipHidden[pin] = true
+		if pcall(pin.SetPinSize, pin, "player", BLIP_GONE) then blipHidden[pin] = true end
 	elseif blipHidden[pin] then
 		-- (back at Blizzard's size for this zoom: its size over the canvas's scale, as it sets it)
 		local dp = pin.dataProvider
 		local sizes = dp and dp.GetUnitPinSizesTable and dp:GetUnitPinSizesTable()
 		local scale = map.GetCanvasScale and map:GetCanvasScale() or 1
-		if sizes and sizes.player and scale and scale > 0 then pcall(pin.SetPinSize, pin, "player", sizes.player / scale) end
-		blipHidden[pin] = nil
+		if sizes and sizes.player and scale and scale > 0 then
+			if pcall(pin.SetPinSize, pin, "player", sizes.player / scale) then blipHidden[pin] = nil end
+		elseif type(pin.SynchronizePinSizes) == "function" then
+			if pcall(pin.SynchronizePinSizes, pin) then blipHidden[pin] = nil end
+		end
 	end
 end
 
 local function RaisePlayer()
 	local level = math.min(sc:GetFrameLevel() + PLAYER_ABOVE, 9500)
-	local shown = mod.db.playerArrow ~= false
+	local shown = mod.db.playerArrow ~= false and not overlayPlayer
 	for pin in map:EnumeratePinsByTemplate("GroupMembersPinTemplate") do
 		if not (pin:IsProtected() and InCombatLockdown()) then
 			if pin:GetFrameLevel() ~= level then pin:SetFrameLevel(level) end
@@ -419,6 +423,42 @@ local function RaisePlayer()
 		end
 	end
 	S.RaiseArrow(level)
+end
+
+local function RestorePlayerBlips()
+	for pin in pairs(blipHidden) do
+		if not (pin:IsProtected() and InCombatLockdown()) then PlayerBlip(pin, true) end
+	end
+end
+local function Number(value)
+	return not ns.Safe.IsSecret(value) and type(value) == "number" and value == value
+		and value > -math.huge and value < math.huge
+end
+local function PlayerPoint(mapID)
+	if not mapID or not S.Rect(mapID) then return end
+	local pos = ns.Safe.Call(C_Map.GetPlayerMapPosition, mapID, "player")
+	local ok, x, y = pcall(ns.Safe.XY, pos)
+	if ok and Number(x) and Number(y) and (x ~= 0 or y ~= 0) then return ToWorld(mapID, x, y) end
+end
+local function UpdatePlayer()
+	if not active or not map:IsShown() then
+		overlayPlayer = false
+		S.SetPlayer(nil)
+		RestorePlayerBlips()
+		return
+	end
+	local u, v, facing
+	if mod.db.playerArrow ~= false then
+		local best = ns.Safe.Call(C_Map.GetBestMapForUnit, "player")
+		u, v = PlayerPoint(best)
+		-- The host map may be a different floor or zone. Prefer the player's
+		-- actual map; readable host coordinates are only a fallback.
+		if not u and best ~= map:GetMapID() then u, v = PlayerPoint(map:GetMapID()) end
+		facing = ns.Safe.Call(GetPlayerFacing)
+		if not Number(facing) then facing = nil end
+	end
+	overlayPlayer = S.SetPlayer(u, v, facing) == true
+	RaisePlayer()
 end
 
 local ticker = CreateFrame("Frame")
@@ -441,24 +481,9 @@ ticker:SetScript("OnUpdate", function(_, elapsed)
 	end
 	local mapID = map:GetMapID()
 
-	-- the player, when the map underneath can't show them
-	local pos = C_Map.GetPlayerMapPosition(mapID, "player")
-	if pos then
-		S.SetPlayer(nil)
-	else
-		local best = C_Map.GetBestMapForUnit("player")
-		local p = best and S.Rect(best) and C_Map.GetPlayerMapPosition(best, "player")
-		local x, y
-		if p then x, y = ns.Safe.XY(p) end
-		if not ns.Safe.IsSecret(x) and not ns.Safe.IsSecret(y) and x and y then
-			local u, v = ToWorld(best, x, y)
-			S.SetPlayer(u, v, ns.Safe.Call(GetPlayerFacing))
-		else
-			S.SetPlayer(nil)
-		end
-	end
-
-	RaisePlayer()
+	-- A readable position does not guarantee Blizzard's unit pin is drawing.
+	-- The continuous map owns one player arrow on every stitched host map.
+	UpdatePlayer()
 
 	stillFor = Settled() and stillFor + 0.1 or 0
 	if mod.db.autoSwitch and userMoved and stillFor >= SWITCH_AFTER and not InCombatLockdown() and not mod.benching then
@@ -567,6 +592,7 @@ local function Attach(mapID)
 		if mod.IsPainting and mod:IsPainting() then mod:TogglePaint(false) end
 		if mod.IsSketching and mod:IsSketching() then mod:ToggleSketch(false) end
 	end
+	UpdatePlayer()
 	if mod.OnStitchedChanged then mod.OnStitchedChanged(active) end
 end
 
@@ -906,6 +932,7 @@ local function Setup()
 		live = nil
 		if mod.OnMapHidden then mod:OnMapHidden() end
 		ticker:Hide()
+		UpdatePlayer()
 	end
 	local shown = Ours("map shown", function()
 		if not S.IsBuilt() and map:GetMapID() then sc:OnCanvasSizeChanged() end   -- built on first showing
@@ -913,7 +940,7 @@ local function Setup()
 			ticker:Show()
 			S.Recull()
 			ApplyZoom()
-			RaisePlayer()
+			UpdatePlayer()
 		end
 		if mod.OnMapShown then mod:OnMapShown() end
 	end)
@@ -922,6 +949,9 @@ local function Setup()
 		shown()
 	end
 	map:AddDataProvider(dp)
+	-- A protected unit pin cannot be restored while in combat. Complete the
+	-- handoff afterwards even if a dungeon/closed map has stopped the ticker.
+	ns.RegisterEvent(mod, "PLAYER_REGEN_ENABLED", function() UpdatePlayer() end)
 
 	if mod.SetupExtras then mod:SetupExtras(map) end
 	if mod.SetupFlights then mod:SetupFlights() end
@@ -984,12 +1014,14 @@ end
 function mod.HostMap() return active and map:GetMapID() or nil end
 -- the close-up layers again, for the view as it is (a setting changed)
 function mod.RefreshView() ApplyView() end
+function mod.RefreshPlayer() UpdatePlayer() end
 -- Layer switches preserve the exact view and refresh native city/zone pins.
 function mod.FollowLayerMap(mapID)
 	if not active or not Stitchable(mapID) then return end
 	userMoved = true
 	if not InCombatLockdown() and map:GetMapID() ~= mapID then Switch(mapID) end
 	ApplyView()
+	UpdatePlayer()
 end
 mod.FromWorld = function(mapID, u, v) return FromWorld(mapID, u, v) end
 -- the view now: centre (normalized), zoom; nil when the map isn't stitched

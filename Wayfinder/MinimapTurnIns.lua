@@ -193,6 +193,7 @@ function Mini:QueryServices(cont, minX, maxX, minY, maxY, callback)
 	for _,rec in ipairs(locations) do if not ns.db.hidden[rec.k] then callback(rec) end end
 end
 function Mini:QueryQuestGivers(cont, minX, maxX, minY, maxY, callback)
+	local readiness={}
 	Query(cont,minX,maxX,minY,maxY,function(frame,state)
 		local data=frame.data
 		if state.kind ~= "quest" or frame.miniMapIcon ~= true or not (frame:IsVisible() or state.owned)
@@ -203,7 +204,10 @@ function Mini:QueryQuestGivers(cont, minX, maxX, minY, maxY, callback)
 		if ok and not filtered and state.cont == cont then
 			local name=ns.Readable(data.Name) and type(data.Name)=="string" and data.Name~="" and data.Name or nil
 			local id=Number(data.Id) and data.Id>0 and data.Id or nil
-			callback({x=state.x,y=state.y,n=name,questID=id})
+			local npcID=ns.FlightQuests:Giver(data)
+			if id and data.Type=="complete" and readiness[id]==nil then readiness[id]=ns.QuestTurnIns:IsReady(id) and true or false end
+			callback({x=state.x,y=state.y,n=name,questID=id,npcID=npcID,frame=frame,
+				kind=data.Type,turnIn=data.Type=="complete" and readiness[id] or nil})
 		end
 	end)
 end
