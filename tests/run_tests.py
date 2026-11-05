@@ -106,6 +106,10 @@ def main():
         if visibility.execute(fh.read()):
             sys.exit(1)
     for with_openmap in (False, True):
+        art = load_addon(continuous=True, with_openmap=with_openmap, quiet=True)
+        with open(os.path.join(HERE, "test_map_art.lua"), encoding="utf-8") as fh:
+            if art.execute(fh.read()):
+                sys.exit(1)
         fog = load_addon(continuous=True, with_openmap=with_openmap, quiet=True)
         with open(os.path.join(HERE, "test_worldfog.lua"), encoding="utf-8") as fh:
             if fog.execute(fh.read()):

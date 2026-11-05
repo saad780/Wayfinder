@@ -8,7 +8,7 @@ local getPosition, getFacing = C_Map.GetPlayerMapPosition, GetPlayerFacing
 local function check(value, message) assert(value, message) end
 local function near(a, b) assert(math.abs(a - b) < .00001, tostring(a) .. " != " .. tostring(b)) end
 local function Arrow()
-	for _, frame in ipairs(S.root.children) do
+	for _, frame in ipairs(S.playerLayer and S.playerLayer.children or {}) do
 		if frame.texture and (frame.texture:GetTexture() == ns.Categories:GetMediaPath("PlayerArrow")
 			or frame.texture:GetAtlas() == ns.Categories.playerArrowAtlas and ns.Categories.playerArrowAtlas) then return frame end
 	end
@@ -23,10 +23,12 @@ local function Show(id, x, y, zoom)
 end
 local function CheckPosition(id, x, y)
 	local u, v = C.API.WorldFromMap(id, x, y)
-	local w, h = S.Size()
+	local cu,cv,zoom=C.API.GetView()
+	local hu,hv=controller.ViewHalfExtents(zoom)
 	local anchor = Arrow().points.CENTER
-	check(anchor and anchor[1] == S.root and anchor[2] == "TOPLEFT", "arrow stays on the stitched coordinate plane")
-	near(anchor[3], u * w); near(anchor[4], -v * h)
+	check(anchor and anchor[1] == S.playerLayer and anchor[2] == "TOPLEFT", "arrow stays in viewport pixels")
+	near(anchor[3],((u-cu)/(2*hu)+.5)*sc:GetWidth())
+	near(anchor[4],-((v-cv)/(2*hv)+.5)*sc:GetHeight())
 end
 local function test(name, fn)
 	C_Map.GetPlayerMapPosition, GetPlayerFacing = getPosition, getFacing
@@ -64,7 +66,31 @@ test("player arrow survives every terrain zoom and updates its position and faci
 	mock.Advance(.2)
 	local width = Arrow():GetWidth()
 	S.root.GetEffectiveScale, sc.GetEffectiveScale = rootScale, scrollScale
-	near(width * 3 / 1.5, 24)
+	near(width, 28)
+end)
+
+test("maximum terrain zoom uses a full-size arrow outside the scaled artwork", function()
+	map:SetMapID(1421)
+	local u,v=C.API.WorldFromMap(1421,.4,.5)
+	Show(1421,.4,.5,C:GetMaxZoom(u,v))
+	check(Arrow():GetParent()==S.playerLayer,"arrow is independent of the terrain frame")
+	check(S.playerLayer:GetParent()==map:GetCanvasContainer(),"player overlay is outside the scaled native canvas")
+	near(Arrow():GetWidth(),28);near(Arrow():GetHeight(),28)
+	check(Arrow():GetFrameLevel()>ns.WorldFog.frame:GetFrameLevel(),"exploration fog cannot cover the arrow")
+	mock.facing=2.7;controller.RefreshPlayer()
+	near(Arrow().texture:GetRotation(),2.7)
+	CheckPosition(1421,.4,.5)
+end)
+
+test("panning immediately repositions the arrow before the next player poll", function()
+	map:SetMapID(1421)
+	local u,v=Show(1421,.4,.5,100)
+	local hu,hv=controller.ViewHalfExtents(100)
+	S.SetView(u+hu*.3,v+hv*.2,hu,hv,100,100)
+	local anchor=Arrow().points.CENTER
+	near(anchor[3],sc:GetWidth()*.35)
+	near(anchor[4],-sc:GetHeight()*.4)
+	controller.RefreshView();mock.Advance(.2)
 end)
 
 local unitPin = CreateFrame("Frame", nil, map:GetCanvas())

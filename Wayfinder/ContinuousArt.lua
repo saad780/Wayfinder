@@ -118,7 +118,7 @@ local function Overlays(rec)
 		rec.overlayPool[#rec.overlayPool + 1] = tex
 	end
 	rec.overlays = {}
-	local info = C_MapExplorationInfo and C_MapExplorationInfo.GetExploredMapTextures(rec.id)
+	local info = ns.GetExplorationOverlays(rec.id)
 	for _, overlay in ipairs(info or {}) do
 		ns.LayoutExplorationOverlay(overlay, rec.layer.tileWidth, rec.layer.tileHeight,
 			function(file, x, y, w, h, u, v, level)
@@ -232,6 +232,7 @@ end
 function S.SetShown(on)
 	shown = on and true or false
 	if root then root:SetShown(shown) end
+	if S.playerLayer then S.playerLayer:SetShown(shown) end
 	if ns.WorldFog and ns.WorldFog.frame and not shown then ns.WorldFog.frame:Hide() end
 	-- Leaving this area (or visiting a dungeon) does not close the world map.
 	-- Keep the selected floor until the map's actual OnHide resets it.
@@ -243,6 +244,7 @@ function S.SetView(u, v, hu, hv, _, stepZoom)
 	viewU, viewV, halfU, halfV, zoom = u, v, hu, hv, stepZoom
 	UpdateUndergroundContext()
 	S.Recull()
+	if player and player:IsShown() then S.SetPlayer(player.u, player.v, player.facing) end
 	ns.WorldFog:Follow(root, artLevel + 66, u, v, hu, hv, shown)
 	-- Underground artwork replaces the surface tiles, but keeps the same
 	-- marker layer. Exiting DetailView here also removed all persistent pins.
@@ -274,11 +276,22 @@ function S.ApplyGrade() S.RefreshExplored() end
 function S.SetPlayer(u, v, facing)
 	if not u or not shown then if player and player:IsShown() then player:Hide() end; return false end
 	if not player then
-		player = CreateFrame("Frame", nil, root)
+		-- Keep the arrow in viewport pixels. Inverse-sizing a frame under the
+		-- enormous terrain/canvas scale can round its artwork down to nothing.
+		local sc = WorldMapFrame.ScrollContainer
+		S.playerLayer = CreateFrame("Frame", nil, WorldMapFrame:GetCanvasContainer())
+		S.playerLayer:SetAllPoints(sc)
+		S.playerLayer:SetClipsChildren(true)
+		S.playerLayer:EnableMouse(false)
+		S.playerLayer:SetIgnoreParentAlpha(true)
+		player = CreateFrame("Frame", nil, S.playerLayer)
+		player:SetSize(28, 28)
 		player:EnableMouse(false)
 		player:SetIgnoreParentAlpha(true)
 		player.texture = player:CreateTexture(nil, "OVERLAY")
 		player.texture:SetAllPoints()
+		player.texture:SetSnapToPixelGrid(false)
+		player.texture:SetTexelSnappingBias(0)
 		if ns.Categories.playerArrowAtlas then
 			player.texture:SetAtlas(ns.Categories.playerArrowAtlas)
 		else
@@ -286,19 +299,20 @@ function S.SetPlayer(u, v, facing)
 		end
 	end
 	local sc = WorldMapFrame.ScrollContainer
-	local effective = root:GetEffectiveScale() / sc:GetEffectiveScale()
-	if player.effective ~= effective then
-		player:SetSize(24 / effective, 24 / effective)
-		player.effective = effective
-	end
-	if player.u ~= u or player.v ~= v then
+	local px = ((u-viewU)/(2*halfU)+.5)*sc:GetWidth()
+	local py = ((v-viewV)/(2*halfV)+.5)*sc:GetHeight()
+	if player.px ~= px or player.py ~= py then
 		player:ClearAllPoints()
-		player:SetPoint("CENTER", root, "TOPLEFT", u * W, -v * H)
-		player.u, player.v = u, v
+		player:SetPoint("CENTER", S.playerLayer, "TOPLEFT", px, -py)
+		player.px, player.py = px, py
 	end
+	player.u, player.v = u, v
 	facing = facing or 0
 	if player.facing ~= facing then player.texture:SetRotation(facing); player.facing = facing end
 	if not player:IsShown() then player:Show() end
 	return true
 end
-function S.RaiseArrow(level) if player and player:GetFrameLevel() ~= level then player:SetFrameLevel(level) end end
+function S.RaiseArrow(level)
+	if S.playerLayer and S.playerLayer:GetFrameLevel() ~= level then S.playerLayer:SetFrameLevel(level) end
+	if player and player:GetFrameLevel() ~= level+1 then player:SetFrameLevel(level+1) end
+end

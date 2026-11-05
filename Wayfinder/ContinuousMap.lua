@@ -225,6 +225,7 @@ function Continuous:OnLogin()
 		if key == "continuousMap" then
 			ns.Print("Continuous map changes take effect after /reload.")
 		elseif self.started and (key == "detailEnabled" or key == "unexploredTerrain") then
+			if key == "unexploredTerrain" then engine.MapStitch.RefreshExplored() end
 			Controller().RefreshView()
 		end
 	end)
