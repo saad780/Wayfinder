@@ -1,6 +1,7 @@
 -- Let the client's quest tracking own live NPC positions and expected-location
 -- fallbacks. Questie's database pins must not add a second static question mark
--- to the corner minimap. World-map frames and native blips are never changed.
+-- to the corner minimap. Service pins in either view share Wayfinder's location
+-- resolver; native blips and world-map quest markers keep their original owners.
 local _, ns = ...
 local Mini = ns:NewModule("MinimapTurnIns")
 local observed = setmetatable({}, { __mode = "k" })
@@ -73,6 +74,14 @@ local function Query(cont, minX, maxX, minY, maxY, callback)
 	for frame in pairs(unlocated) do Mini:IndexFrame(frame, observed[frame]) end
 	local grid = buckets[cont]
 	if not grid then return end
+	if (math.floor(maxX/GRID)-math.floor(minX/GRID)+1)*(math.floor(maxY/GRID)-math.floor(minY/GRID)+1)>256 then
+		for _,bucket in pairs(grid) do
+			for frame,state in pairs(bucket) do
+				if state.x>=minX and state.x<=maxX and state.y>=minY and state.y<=maxY then callback(frame,state) end
+			end
+		end
+		return
+	end
 	for bx=math.floor(minX/GRID),math.floor(maxX/GRID) do
 		for by=math.floor(minY/GRID),math.floor(maxY/GRID) do
 			local bucket = grid[(bx+200)*1000+by+200]
@@ -86,8 +95,11 @@ local function Query(cont, minX, maxX, minY, maxY, callback)
 end
 
 function Mini:ShouldSuppress(frame)
-	if not Minimap then return false end
 	local tag = frame.wayfinderServiceTag
+	if frame.miniMapIcon == false and frame.isManualIcon and tag and tag.data == frame.data
+		and Number(frame.x) and Number(frame.y) and Number(frame.UiMapID)
+		and ns.MapPins:OwnsServiceSources() then return true end
+	if not Minimap then return false end
 	if frame.miniMapIcon == true and frame.isManualIcon and tag and tag.data == frame.data
 		and ns:GetSetting("showMinimapServices") and ns.MinimapServices:IsActive() then return true end
 	if not ns:GetSetting("nativeMinimapTurnIns") then return false end
@@ -268,7 +280,7 @@ function Mini:RefreshFrame(frame,state,ownershipOnly)
 	if not ownershipOnly or not state.bucket or state.sourceData ~= frame.data or frame.miniMapIcon ~= true
 		or type(frame.data) ~= "table" or frame.data.Type ~= "complete" then self:IndexFrame(frame,state) end
 	local ok,suppress=true,false
-	if frame.miniMapIcon == true then ok,suppress=pcall(self.ShouldSuppress,self,frame) end
+	if type(frame.miniMapIcon) == "boolean" then ok,suppress=pcall(self.ShouldSuppress,self,frame) end
 	if ok and suppress then
 		if not frame.hidden and frame.FakeHide then state.owned=true; pcall(frame.FakeHide,frame) end
 	elseif state.owned then
@@ -356,9 +368,14 @@ function Mini:OnLogin()
 		self:RequestRefresh()
 	end)
 	ns:On("SETTING_CHANGED",function(key)
-		if key=="nativeMinimapTurnIns" or key=="showMinimapServices" then self:Install(); self:RequestRefresh(true) end
+		if key=="nativeMinimapTurnIns" or key=="showMinimapServices" or key=="showOnWorldMap" then self:Install(); self:RequestRefresh(true) end
 	end)
 	ns:RegisterEvent("ADDON_LOADED",function(_,name)
 		if name=="Questie" then C_Timer.After(0,function() self:Install() end) end
+	end)
+	EventUtil.ContinueOnAddOnLoaded("Blizzard_WorldMap", function()
+		WorldMapFrame:HookScript("OnShow", function() self:RequestRefresh(true) end)
+		WorldMapFrame:HookScript("OnHide", function() self:RequestRefresh(true) end)
+		hooksecurefunc(WorldMapFrame, "OnMapChanged", function() self:RequestRefresh(true) end)
 	end)
 end

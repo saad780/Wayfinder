@@ -178,9 +178,23 @@ function provider:RefreshAllData()
 		return
 	end
 	local map = self:GetMap()
+	local entries = {}
+	local sc = map.ScrollContainer
+	local view = sc:GetViewRect()
+	local function Collect(rec, catID, x, y)
+		entries[#entries+1] = {rec=rec,cat=catID,c=rec.c,id=rec.id,n=rec.n,kind=rec.kind,
+			seed=rec.seed,cats=rec.cats,x=rec.x,y=rec.y,mx=x,my=y,
+			screenX=x*sc:GetWidth()/(view.right-view.left),screenY=y*sc:GetHeight()/(view.bottom-view.top)}
+	end
+	local function Flush()
+		for _, entry in ipairs(ns.ServiceLocations:Select(entries)) do
+			map:AcquirePin(PIN_TEMPLATE, entry.rec, entry.cat, entry.mx, entry.my)
+		end
+	end
 	if ns.OpenMapCompat:RefreshPins(map, function(rec, catID, x, y)
-		map:AcquirePin(PIN_TEMPLATE, rec, catID, x, y)
-	end) then return end
+		if rec.waypoint then map:AcquirePin(PIN_TEMPLATE, rec, catID, x, y)
+		else Collect(rec,catID,x,y) end
+	end) then Flush(); return end
 	local mapID = map:GetMapID()
 	local info = mapID and C_Map.GetMapInfo(mapID)
 	if not info then
@@ -202,12 +216,14 @@ function provider:RefreshAllData()
 		if catID and ns.BelongsToMap(rec, mapID) then
 			local x, y = ns.WorldToMapRect(rect, rec.x, rec.y)
 			if x >= 0 and x <= 1 and y >= 0 and y <= 1 then
-				map:AcquirePin(PIN_TEMPLATE, rec, catID, x, y)
+				Collect(rec,catID,x,y)
 			end
 		end
 	end
 	ns.Database:Query(rect.cont, minX, maxX, minY, maxY, Add)
 	ns.Seeds:Query(rect.cont, minX, maxX, minY, maxY, Add)
+	ns.MinimapTurnIns:QueryServices(rect.cont, minX, maxX, minY, maxY, Add)
+	Flush()
 
 	local waypoint = ns.Navigation:GetWaypoint()
 	if waypoint and waypoint.c == rect.cont and ns.BelongsToMap(waypoint, mapID) then
@@ -216,6 +232,11 @@ function provider:RefreshAllData()
 			map:AcquirePin(PIN_TEMPLATE, waypoint, "waypoint", x, y)
 		end
 	end
+end
+
+function MapPins:OwnsServiceSources()
+	return ns.db and ns:GetSetting("showOnWorldMap") and WorldMapFrame and WorldMapFrame:IsShown()
+		and (ns.OpenMapCompat:IsActive() or ns.GetMapRect(WorldMapFrame:GetMapID()) ~= nil)
 end
 
 function MapPins:RefreshNow()
@@ -254,4 +275,5 @@ function MapPins:OnLogin()
 	ns:On("WAYPOINT_CHANGED", Refresh)
 	ns:On("QUEST_AVAILABILITY_CHANGED", Refresh)
 	ns:On("MAP_LAYER_CHANGED", Refresh)
+	ns:On("SERVICE_SOURCES_CHANGED", Refresh)
 end

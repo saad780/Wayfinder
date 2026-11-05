@@ -294,6 +294,8 @@ local function BuildTile(col, row)
 		if mode ~= ns.UNEXPLORED_DARKENED then
 			return
 		end
+		-- The stitched map's single fog layer also covers its painted artwork.
+		if following and ns.ContinuousMap.started then return end
 		-- ... with fog over what you have not explored.
 		local alpha = 1 - (ns:GetSetting("unexploredBrightness") or 0.4)
 		if fuzzyBuilt then
@@ -563,6 +565,8 @@ local function DescribePin(pin, index)
 	return { npcID = rec and rec.id or entry and entry.npcID,
 		name = rec and rec.n or entry and (entry.kind or service) and entry.n,
 		id = rec and rec.id or entry and entry.npcID,
+		c = rec and rec.c or entry and entry.c,
+		kind = rec and rec.kind, seed = rec and rec.seed, cats = rec and rec.cats,
 		n = rec and rec.n or entry and (entry.kind or service) and entry.n,
 		x = -pin.py, y = -pin.px, cat = pin.catID or entry and entry.service,
 		questID = quest and quest.questID or entry and entry.questID,
@@ -576,7 +580,11 @@ end
 -- Different nearby NPCs and separate objective spawns must remain distinct.
 local function SameMarker(a, b)
 	local x, y = a.marker, b.marker
-	if x.service and y.service then return ns.ServiceLocations:Same(x,y) end
+	if x.service and y.service then
+		local ax, ay = PlaneToView(a.px,a.py)
+		local bx, by = PlaneToView(b.px,b.py)
+		return ns.ServiceLocations:Same(x,y) or ns.ServiceLocations:Overlaps(x,y,ns.Distance(ax,ay,bx,by))
+	end
 	local distance = ns.Distance(a.px, a.py, b.px, b.py)
 	if distance > 25 then return false end
 	if x.npcID and y.npcID then return x.npcID == y.npcID end

@@ -137,6 +137,7 @@ function Compat:RefreshPins(map, add)
 				local a, b, l, r = math.min(wx0, wx1), math.max(wx0, wx1), math.min(wy0, wy1), math.max(wy0, wy1)
 				ns.Database:Query(c, a, b, l, r, Add)
 				ns.Seeds:Query(c, a, b, l, r, Add)
+				ns.MinimapTurnIns:QueryServices(c, a, b, l, r, Add)
 			end
 		end
 	end

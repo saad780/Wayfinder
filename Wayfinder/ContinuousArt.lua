@@ -232,6 +232,7 @@ end
 function S.SetShown(on)
 	shown = on and true or false
 	if root then root:SetShown(shown) end
+	if ns.WorldFog and ns.WorldFog.frame and not shown then ns.WorldFog.frame:Hide() end
 	-- Leaving this area (or visiting a dungeon) does not close the world map.
 	-- Keep the selected floor until the map's actual OnHide resets it.
 	if not shown then UpdateUndergroundContext() end
@@ -242,6 +243,7 @@ function S.SetView(u, v, hu, hv, _, stepZoom)
 	viewU, viewV, halfU, halfV, zoom = u, v, hu, hv, stepZoom
 	UpdateUndergroundContext()
 	S.Recull()
+	ns.WorldFog:Follow(root, artLevel + 66, u, v, hu, hv, shown)
 	-- Underground artwork replaces the surface tiles, but keeps the same
 	-- marker layer. Exiting DetailView here also removed all persistent pins.
 	local pinsOnly = undergroundContext and not showSurface

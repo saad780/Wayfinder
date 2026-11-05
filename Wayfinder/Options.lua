@@ -70,7 +70,7 @@ function Options:BuildPanel()
 	Checkbox(category, "detailEnabled", "Zoom past the map into minimap detail",
 		"Blend into the minimap's own terrain as you zoom closer. With the continuous map disabled, scrolling past the normal map's limit opens the separate detail view.")
 	Dropdown(category, "unexploredTerrain", "Unexplored terrain",
-		"How the detail view draws terrain you have not explored yet.\n\nHidden: the zone's map art shows through.\nDarkened: the real terrain, dimmed.\nShown: the real terrain at full brightness.",
+		"How unexplored areas appear.\n\nHidden: detailed terrain shows only explored areas.\nDarkened: unexplored areas are dimmed across the whole continuous map and detail view.\nShown: map art and terrain at full brightness.",
 		ns.UNEXPLORED_NAMES)
 	Slider(category, "unexploredBrightness", "Darkened terrain brightness",
 		"How bright unexplored terrain is when it is darkened.", 0.15, 0.8, 0.05, Percent)
