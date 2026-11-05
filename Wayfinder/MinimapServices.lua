@@ -2,6 +2,10 @@
 local _, ns = ...
 local Mini = ns:NewModule("MinimapServices")
 local pins, tracking = {}, {}
+-- These static town services are projected from known positions. Some Forever
+-- clients report their native tracking as active while drawing no service blip.
+-- Disable only these native filters while owning them, so each has one renderer.
+local PROJECTED = {bank=true,auction=true}
 local SCAN_MARGIN = 64 -- cache beyond the edge so pins enter smoothly between scans
 local hookedMinimaps = setmetatable({}, { __mode = "k" })
 local function Number(v) return ns.Readable(v) and type(v) == "number" and v == v and math.abs(v) < math.huge end
@@ -127,11 +131,14 @@ function Mini:SyncTracking()
 			if self.active and not self.leaving then
 				tracking[key] = Selected(cats)
 				local selected = tracking[key]
-				if info.active ~= selected then
-					pcall(C_Minimap.SetTracking, i, selected)
+				local projected=false
+				for _,cat in ipairs(cats) do if PROJECTED[cat] then projected=true end end
+				local nativeSelected=selected and not projected
+				if info.active ~= nativeSelected then
+					pcall(C_Minimap.SetTracking, i, nativeSelected)
 					info = C_Minimap.GetTrackingInfo(i) or info
 				end
-				if info.active then for _,cat in ipairs(cats) do nativeCategories[cat] = true end end
+				if info.active and not projected then for _,cat in ipairs(cats) do nativeCategories[cat] = true end end
 			elseif tracking[key] ~= nil then
 				local selected = Selected(cats)
 				if info.active ~= selected then pcall(C_Minimap.SetTracking, i, selected) end
@@ -139,8 +146,8 @@ function Mini:SyncTracking()
 			end
 		end
 	end
-	-- Native blips are anchored by the client to live NPCs. Do not cover them
-	-- with another Lua-projected icon, or disable undiscovered native services.
+	-- Other native blips stay anchored by the client to live NPCs. Bank and
+	-- auction filters are excluded because those categories have one projector.
 	self.nativeCategories = nativeCategories
 	self.syncing = false
 	self.trackingDirty, self.trackingActive = nil, self.active
@@ -257,6 +264,10 @@ function Mini:UpdatePositions(cont, wx, wy)
 		else visible = x*x+y*y<=safeRadius*safeRadius end
 		if visible then
 			local px, py = x/radius*halfW+(pin.offsetX or 0), y/radius*halfH+(pin.offsetY or 0)
+			if pin.catID~="quest" and not pin.flightQuest then
+				local dx,dy=ns.ServiceLocations:PlayerOffset(px,py,0,0,24,pin.catID)
+				px,py=px+dx,py+dy
+			end
 			if pin.anchor ~= Minimap or pin.px ~= px or pin.py ~= py then
 				pin:ClearAllPoints()
 				pin:SetPoint("CENTER", Minimap, "CENTER", px, py)
@@ -326,10 +337,10 @@ function Mini:Rebuild()
 			end
 		end
 	end
-	local used, locations, candidates, nativeLocations = 0, {}, {}, {}
+	local used, locations, locationCats, candidates, nativeLocations = 0, {}, {}, {}, {}
 	local function Collect(rec)
 		local cat=ns.Categories:GetVisibleCategory(rec)
-		if cat then candidates[#candidates+1]={rec=rec,cat=cat,id=rec.id,n=rec.n,x=rec.x,y=rec.y,quality=rec.ephemeral and 1 or 3} end
+		if cat then candidates[#candidates+1]={rec=rec,cat=cat,id=rec.id,n=rec.n,x=rec.x,y=rec.y,quality=rec.seed and 1 or rec.ephemeral and 2 or 3} end
 	end
 	local function Add(candidate)
 		local rec,cat=candidate.rec,candidate.cat
@@ -358,10 +369,16 @@ function Mini:Rebuild()
 		end
 		local sourceRec=rec
 		if flightQuest then rec=ns.FlightQuests:DisplayRecord(rec,flightQuest) end
-		for _, prior in ipairs(locations) do
+		for index, prior in ipairs(locations) do
 			if prior == rec or ns.ServiceLocations:Same(rec,prior) then return end
+			if locationCats[index]==cat and (cat=="bank" or cat=="auction" or cat=="flight") then
+				local pixels=ns.Distance(rec.x,rec.y,prior.x,prior.y)*math.max(self.halfW,self.halfH)/self.radius
+				if ns.ServiceLocations:Overlaps({cat=cat,x=rec.x,y=rec.y,c=rec.c},
+					{cat=cat,x=prior.x,y=prior.y,c=prior.c},pixels) then return end
+			end
 		end
 		locations[#locations+1] = rec
+		locationCats[#locations]=cat
 		used = used + 1
 		local pin = Acquire(used)
 		pin.rec, pin.catID = rec, cat

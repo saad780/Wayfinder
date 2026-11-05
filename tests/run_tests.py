@@ -105,7 +105,19 @@ def main():
     with open(os.path.join(HERE, "test_service_visibility.lua"), encoding="utf-8") as fh:
         if visibility.execute(fh.read()):
             sys.exit(1)
+    handoff = load_addon(quiet=True)
+    with open(os.path.join(HERE, "test_service_handoff.lua"), encoding="utf-8") as fh:
+        if handoff.execute(fh.read()):
+            sys.exit(1)
+    banks = load_addon(quiet=True)
+    with open(os.path.join(HERE, "test_minimap_banks.lua"), encoding="utf-8") as fh:
+        if banks.execute(fh.read()):
+            sys.exit(1)
     for with_openmap in (False, True):
+        world_banks = load_addon(continuous=True, with_openmap=with_openmap, quiet=True)
+        with open(os.path.join(HERE, "test_worldmap_banks.lua"), encoding="utf-8") as fh:
+            if world_banks.execute(fh.read()):
+                sys.exit(1)
         art = load_addon(continuous=True, with_openmap=with_openmap, quiet=True)
         with open(os.path.join(HERE, "test_map_art.lua"), encoding="utf-8") as fh:
             if art.execute(fh.read()):

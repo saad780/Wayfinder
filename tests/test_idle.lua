@@ -75,7 +75,8 @@ test("tracking checks are event driven with a low-cost compatibility fallback",f
 	assert(measured.tracking<30 and measured.filter<30,"idle tracking is not enumerated five times per second")
 	local before=calls.tracking
 	active[1]=true;mock.Fire("MINIMAP_UPDATE_TRACKING");mock.Advance(.03,.01)
-	assert(active[1] and calls.tracking>before,"native service selections stay enabled after their event")
+	assert(not active[1] and ns:IsCategoryEnabled("bank") and calls.tracking>before,
+		"bank selection stays enabled while its duplicate native renderer is turned off")
 	C_Minimap.SetTracking(2,true)
 	assert(ns:IsCategoryEnabled("repair"),"external native checkbox edits update Wayfinder immediately")
 	mock.Advance(.03,.01)

@@ -181,6 +181,17 @@ function provider:RefreshAllData()
 	local entries = {}
 	local sc = map.ScrollContainer
 	local view = sc:GetViewRect()
+	local scaleX,scaleY=sc:GetWidth()/(view.right-view.left),sc:GetHeight()/(view.bottom-view.top)
+	local pc,wx,wy=ns.GetPlayerWorld()
+	local px,py=wx,wy
+	if pc then
+		local api=ns.OpenMapCompat:GetAPI()
+		if ns.OpenMapCompat:IsActive() and api.CanvasFromWorldPos then px,py=api.CanvasFromWorldPos(pc,px,py)
+		else
+			local rect=ns.GetMapRect(map:GetMapID())
+			if rect and rect.cont==pc then px,py=ns.WorldToMapRect(rect,px,py) else px,py=nil,nil end
+		end
+	end
 	local function Collect(rec, catID, x, y)
 		entries[#entries+1] = {rec=rec,cat=catID,c=rec.c,id=rec.id,n=rec.n,kind=rec.kind,
 			seed=rec.seed,cats=rec.cats,x=rec.x,y=rec.y,mx=x,my=y,
@@ -188,7 +199,12 @@ function provider:RefreshAllData()
 	end
 	local function Flush()
 		for _, entry in ipairs(ns.ServiceLocations:Select(entries)) do
-			map:AcquirePin(PIN_TEMPLATE, entry.rec, entry.cat, entry.mx, entry.my)
+			local dx,dy=0,0
+			if px and py and entry.c==pc and ns.Distance(entry.x,entry.y,wx,wy)<=15 then
+				dx,dy=ns.ServiceLocations:PlayerOffset(entry.screenX,entry.screenY,px*scaleX,py*scaleY,
+					14+9*(ns:GetSetting("iconScale") or 1)+3,entry.cat)
+			end
+			map:AcquirePin(PIN_TEMPLATE, entry.rec, entry.cat, entry.mx+dx/scaleX, entry.my+dy/scaleY)
 		end
 	end
 	if ns.OpenMapCompat:RefreshPins(map, function(rec, catID, x, y)

@@ -31,8 +31,8 @@ local function Description(index)
 	end
 	return desc
 end
-local root,repair,minerals=Description(),Description(2),Description(4)
-root.children={repair,minerals}
+local root,repair,minerals,bank=Description(),Description(2),Description(4),Description(1)
+root.children={repair,minerals,bank}
 modify(nil,root)
 local function test(name,fn)
 	local ok,err=pcall(fn)
@@ -50,6 +50,13 @@ test("Blizzard checkboxes control real native blips and Wayfinder selections tog
 	mock.Advance(.03,.01)
 	assert(ns:IsCategoryEnabled("repair") and repair.selected(repair.data),"native check persists")
 	assert(active[2]==true,"checking restores native icons rather than an empty replacement")
+end)
+test("bank checkboxes control the projected service while avoiding duplicate native blips",function()
+	assert(bank.selected(bank.data) and not active[1])
+	bank.responder(bank.data);mock.Advance(.03,.01)
+	assert(not ns:IsCategoryEnabled("bank") and not bank.selected(bank.data) and not active[1])
+	bank.responder(bank.data);mock.Advance(.03,.01)
+	assert(ns:IsCategoryEnabled("bank") and bank.selected(bank.data) and not active[1])
 end)
 test("Wayfinder settings and external native tracking changes update the same selection",function()
 	ns:SetCategoryEnabled("repair",false)
@@ -77,7 +84,7 @@ test("supported services use native rendering without a competing Wayfinder mark
 	local c,x,y=ns.GetPlayerWorld()
 	local rec=ns.Database:RecordNPC({npcID=898001,name="Native repair merchant",cats={repair=true,vendor=true},cont=c,wx=x+10,wy=y,mapID=mock.playerMap,accuracy=1})
 	Mini:Update()
-	assert(active[1] and active[2],"native blips remain available for every supported NPC, including unrecorded ones")
+	assert(not active[1] and active[2],"bankers have a dedicated renderer while repair retains native blips")
 	for _,pin in ipairs(Mini.pins) do assert(not pin:IsShown() or pin.rec~=rec,"no duplicate Lua-projected repair marker") end
 	ns:SetCategoryEnabled("repair",false);mock.Advance(.03,.01)
 	assert(not active[2],"native repair checkbox controls its actual blips")

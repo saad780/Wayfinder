@@ -549,9 +549,17 @@ local function ReleasePins(keepTooltip)
 end
 
 local function PositionPins()
+	local pc,wx,wy=ns.GetPlayerWorld()
+	local playerX,playerY
+	if pc==cont then playerX,playerY=PlaneToView(ns.WorldToPlane(wx,wy)) end
 	for i = 1, #activePins do
 		local pin = activePins[i]
 		local vx, vy = PlaneToView(pin.px, pin.py)
+		local cat=pin.catID or pin.external and pin.external.service
+		if playerX and cat and ns.Distance(-pin.py,-pin.px,wx,wy)<=15 then
+			local dx,dy=ns.ServiceLocations:PlayerOffset(vx,vy,playerX,playerY,14+pin:GetWidth()/2+3,cat)
+			vx,vy=vx+dx,vy+dy
+		end
 		pin:SetPoint("CENTER", view, "TOPLEFT", vx, -vy)
 	end
 end

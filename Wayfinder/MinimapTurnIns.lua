@@ -231,7 +231,10 @@ function Mini:ObserveFrame(frame)
 		state={original=original}
 		observed[frame]=state
 		frame.ShouldBeHidden=function(owner,...)
-			if original(owner,...) then return true end
+			local tag=owner.wayfinderServiceTag
+			if owner.isManualIcon and tag and tag.data==owner.data then
+				if not self:ServiceAllowed(owner,state) then return true end
+			elseif original(owner,...) then return true end
 			local ok,suppress=pcall(self.ShouldSuppress,self,owner)
 			if ok and suppress then
 				if not owner.hidden then state.owned=true end
@@ -284,9 +287,17 @@ function Mini:RefreshFrame(frame,state,ownershipOnly)
 	if ok and suppress then
 		if not frame.hidden and frame.FakeHide then state.owned=true; pcall(frame.FakeHide,frame) end
 	elseif state.owned then
+		-- Check the service policy while ownership still identifies our FakeHide.
+		-- Questie's generic predicate treats NPC IDs as quests and otherwise
+		-- strands every manual source in its hidden state when the map closes.
+		local readable,allowed
+		if state.kind=="service" then readable,allowed=pcall(self.ServiceAllowed,self,frame,state)
+		else
+			local ok,hidden=pcall(state.original,frame)
+			readable,allowed=ok,not hidden
+		end
 		state.owned=nil
-		local readable,hidden=pcall(state.original,frame)
-		if readable and not hidden and frame.FakeShow then pcall(frame.FakeShow,frame) end
+		if readable and allowed and frame.FakeShow then pcall(frame.FakeShow,frame) end
 	end
 end
 -- Explicit synchronous refresh for callers/tests; event paths use the worker.
