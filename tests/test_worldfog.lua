@@ -40,7 +40,7 @@ test("world and continent zoom keep unexplored map art dark",function()
 end)
 test("walking reveals map art without requiring a zoom or pan",function()
 	Show(10)
-	ns.Exploration:MarkCircle(cont,wx,wy,120);mock.Advance(.1)
+	ns.Exploration:MarkCircle(cont,wx,wy,600);mock.Advance(.1)
 	assert(#Covering()==0,"explored centre is clear on the painted map")
 end)
 test("the terrain transition uses the same fog layer exactly once",function()
@@ -67,6 +67,63 @@ test("repeated fog refreshes reuse textures and merge empty continents",function
 	assert(visible<=2,"unexplored continents need one rectangle each")
 	for i=1,8 do Fog:Invalidate();mock.Advance(.1) end
 	assert(#Fog.frame.textures==count,"refreshes cannot grow the texture pool")
+end)
+test("rectangular discoveries have intermediate coverage and rounded fade corners",function()
+	local tiles = ns.db.explored[ns:GetCharacterKey()][cont] or {}
+	ns.db.explored[ns:GetCharacterKey()][cont]=tiles
+	for y=row,row+3 do for x=col,col+3 do
+		local rows={};for j=1,ns.CELLS do rows[j]=65535 end
+		tiles[ns.TileKey(x,y)]=rows
+	end end
+	Fog:Invalidate()
+	for _,stride in ipairs({1,4,16}) do
+		local pieces=Fog.GetPieces(cont,col,row,stride)
+		local intermediate,corner=false,false
+		for _,piece in ipairs(pieces) do
+			local code=piece[1]
+			local levels={}
+			for i=1,4 do
+				levels[i]=code%5;code=math.floor(code/5)
+				if levels[i]>0 and levels[i]<4 then intermediate=true end
+			end
+			if levels[1]<levels[2] and levels[1]<levels[3] then corner=true end
+		end
+		assert(intermediate,"the boundary contains partial exploration coverage at stride "..stride)
+		assert(corner,"the two-axis corner is feathered at stride "..stride)
+	end
+end)
+test("blurred boundaries join continuously across tile seams",function()
+	local function Sample(c,r,stride,x,y)
+		local pieces=Fog.GetPieces(cont,c,r,stride)
+		if not pieces then return 0 end
+		for _,p in ipairs(pieces) do
+			if x>=p[2] and x<p[3] and y>=p[4] and y<p[5] then
+				local code=p[1]
+				local tl=code%5;code=math.floor(code/5)
+				local tr=code%5;code=math.floor(code/5)
+				local bl=code%5;local br=math.floor(code/5)%5
+				local u,v=(x-p[2])/(p[3]-p[2]),(y-p[4])/(p[5]-p[4])
+				return (tl*(1-u)*(1-v)+tr*u*(1-v)+bl*(1-u)*v+br*u*v)/4
+			end
+		end
+		return 1
+	end
+	for _,stride in ipairs({1,4,16}) do
+		for y=stride/2,ns.CELLS,stride/3 do
+			local left=Sample(col-1,row,stride,ns.CELLS+stride/2-.000001,y)
+			local right=Sample(col,row,stride,stride/2,y)
+			assert(math.abs(left-right)<.00001,"no hard seam between neighbouring patches")
+		end
+	end
+end)
+test("exploration changes invalidate blurred neighbours beyond the old single-tile edge",function()
+	local original=Fog.GetPieces(cont,col-1,row,16)
+	local tiles=ns.db.explored[ns:GetCharacterKey()][cont]
+	tiles[ns.TileKey(col,row)]=nil
+	Fog:Invalidate(cont,{ns.TileKey(col,row)})
+	local updated=Fog.GetPieces(cont,col-1,row,16)
+	assert(original~=updated,"a live discovery updates neighbouring filtered coverage")
+	ns.Exploration:Reset();mock.Advance(.1)
 end)
 test("taxi nodes and generic built-in flight locations match their NPC",function()
 	local npc={id=2995,n="Tal",kind="npc",cat="flight",x=0,y=0,c=1}

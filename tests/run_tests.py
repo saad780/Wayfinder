@@ -129,7 +129,7 @@ def main():
         assert(Wayfinder.OpenMapCompat:GetAPI() == OpenMapAPI)
         io.write('  ok    disabling continuous mode preserves OpenMap and its compatibility adapter\\n')
     """)
-    for suite in ("test_sources.py", "test_arrow_art.py"):
+    for suite in ("test_sources.py", "test_arrow_art.py", "test_fog_art.py"):
         result = subprocess.run([sys.executable, os.path.join(HERE, suite)])
         if result.returncode:
             sys.exit(result.returncode)
